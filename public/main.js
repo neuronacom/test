@@ -1,58 +1,33 @@
-// === CANVAS BACKGROUND ===
-const canvas = document.getElementById('bg'), ctx = canvas.getContext('2d');
-let W, H, nodes;
-function resize(){ W=canvas.width=innerWidth; H=canvas.height=innerHeight; }
-window.addEventListener('resize', resize);
-function init(){
-  nodes = Array.from({length:33}).map(_=>({
-    x:Math.random()*W, y:Math.random()*H,
-    vx:(Math.random()-0.5)*0.6, vy:(Math.random()-0.5)*0.6
-  }));
-}
-function draw(){
-  ctx.clearRect(0,0,W,H);
-  ctx.lineCap='round'; ctx.lineJoin='round';
-  nodes.forEach((a,i)=>{
-    nodes.slice(i+1).forEach(b=>{
-      const dx=a.x-b.x, dy=a.y-b.y, d=Math.hypot(dx,dy);
-      if(d<240){
-        ctx.strokeStyle=`rgba(0,0,0,${Math.min(0.46,(240-d)/170)})`;
-        ctx.lineWidth=2.1;
-        ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
-      }
-    });
-  });
-  nodes.forEach(n=>{
-    n.x+=n.vx; n.y+=n.vy;
-    if(n.x<0||n.x>W) n.vx*=-1;
-    if(n.y<0||n.y>H) n.vy*=-1;
-    ctx.fillStyle='rgba(0,0,0,0.95)';
-    ctx.beginPath(); ctx.arc(n.x,n.y,4.4,0,Math.PI*2); ctx.fill();
-  });
-  requestAnimationFrame(draw);
-}
-resize(); init(); draw();
+// === NEURONA Trade AI — MONOLITH JS ===
 
-// === I18N & LANGS ===
+/* === Конфиг (API endpoints) === */
+const ENDPOINTS = {
+  OPENAI:         '/api/openai',
+  ALL:            '/api/all',
+  NEWS:           '/api/news',
+  CMC:            '/api/cmc',
+  CRYPTOPANIC:    '/api/cryptopanic',
+  COINGECKO:      '/api/coingecko',
+  BINANCE:        '/api/binance',
+};
+const SYMBOLS_TO_WATCH = ['BTC','ETH','BNB','XRP','SOL'];
+const NOTIF_PERCENT_LEVELS = [1,2,3,4,5,6,7,8,9,10];
+let lastPrices = {}, lastNewsIds = [], notifInterval = null;
+
+/* === Локализация === */
 const langs = [
-  {code:'ru',name:'Русский'},
-  {code:'en',name:'English'},
-  {code:'ua',name:'Українська'},
-  {code:'es',name:'Español'},
-  {code:'de',name:'Deutsch'},
-  {code:'fr',name:'Français'},
-  {code:'it',name:'Italiano'},
-  {code:'pl',name:'Polski'},
-  {code:'tr',name:'Türkçe'},
-  {code:'zh',name:'中文'}
+  {code:'ru',name:'Русский'},{code:'en',name:'English'},{code:'ua',name:'Українська'},
+  {code:'es',name:'Español'},{code:'de',name:'Deutsch'},{code:'fr',name:'Français'},
+  {code:'it',name:'Italiano'},{code:'pl',name:'Polski'},{code:'tr',name:'Türkçe'},{code:'zh',name:'中文'}
 ];
 const i18n = {
-  en:{ph:"Type a message...",send:"Send",notifOn:"Notifications enabled! Now you will receive updates about latest news and top crypto prices.", notifOff:"Notifications disabled.", notifAllow:"Allow notifications in your browser!", notifError:"Notification permission denied.", newsPush:"New crypto news!", pricePush:"Crypto price changed!", internal:"Internal error, please try again later."},
-  ru:{ph:"Напишите сообщение...",send:"Отправить",notifOn:"Уведомления включены! Теперь вы будете получать уведомления о последних новостях и ценах криптовалют.", notifOff:"Уведомления выключены.", notifAllow:"Разрешите уведомления в браузере!", notifError:"Нет доступа к уведомлениям.", newsPush:"Свежие крипто-новости!", pricePush:"Изменилась цена криптовалют!", internal:"Внутренняя ошибка, попробуйте позже."},
-  ua:{ph:"Введіть повідомлення...",send:"Надіслати",notifOn:"Сповіщення увімкнено! Тепер ви будете отримувати сповіщення про останні новини та ціни.", notifOff:"Сповіщення вимкнено.", notifAllow:"Дозвольте сповіщення в браузері!", notifError:"Немає доступу до сповіщень.", newsPush:"Свіжі крипто-новини!", pricePush:"Зміна ціни криптовалют!", internal:"Внутрішня помилка, спробуйте пізніше."},
+  en:{ph:"Type a message...",send:"Send",notifOn:"Notifications enabled! Now you will receive signals and news.",notifOff:"Notifications disabled.",notifAllow:"Allow notifications in your browser!",notifError:"Notification permission denied.", news:"Crypto News", signals:"Trading Signals", ai:"AI Assistant", menu_profile:"My profile", menu_sub:"Subscription", menu_settings:"Settings", menu_notif:"Notifications", menu_theme:"Theme", menu_lang:"Language", save:"Save changes", popupNotifOn:"Notifications enabled! Now you will receive trading signals and news.", popupNotifOff:"Notifications disabled."},
+  ru:{ph:"Напишите сообщение...",send:"Отправить",notifOn:"Уведомления включены! Теперь вы будете получать сигналы и новости.",notifOff:"Уведомления выключены.",notifAllow:"Разрешите уведомления в браузере!",notifError:"Нет доступа к уведомлениям.", news:"Крипто-Новости", signals:"Торговые сигналы", ai:"AI Ассистент", menu_profile:"Мой профиль", menu_sub:"Подписка", menu_settings:"Настройки", menu_notif:"Уведомления", menu_theme:"Тема", menu_lang:"Язык", save:"Сохранить изменения", popupNotifOn:"Уведомления включены! Вы будете получать сигналы и новости.", popupNotifOff:"Уведомления выключены."},
+  ua:{ph:"Введіть повідомлення...",send:"Надіслати",notifOn:"Сповіщення увімкнено! Тепер ви будете отримувати сигнали і новини.",notifOff:"Сповіщення вимкнено.",notifAllow:"Дозвольте сповіщення в браузері!",notifError:"Немає доступу до сповіщень.", news:"Крипто-Новини", signals:"Трейдинг сигнали", ai:"AI Асистент", menu_profile:"Мій профіль", menu_sub:"Підписка", menu_settings:"Налаштування", menu_notif:"Сповіщення", menu_theme:"Тема", menu_lang:"Мова", save:"Зберегти зміни", popupNotifOn:"Сповіщення увімкнено! Ви будете отримувати сигнали і новини.", popupNotifOff:"Сповіщення вимкнено."},
 };
-let lang = (localStorage.getItem('neurona_lang')||navigator.language.slice(0,2));
-if(!i18n[lang]) lang='en';
+/* === State === */
+let lang = localStorage.getItem('neurona_lang') || navigator.language.slice(0,2); if(!i18n[lang]) lang='en';
+let currAiVersion = "neurona1"; // "neurona1" (AI) | "tradeai"
 let settingsBuffer = {
   theme: localStorage.getItem('neurona_theme') === 'dark',
   notif: localStorage.getItem('neurona_notif') === 'on',
@@ -60,267 +35,178 @@ let settingsBuffer = {
 };
 let lastSavedSettings = {...settingsBuffer};
 
-// === DOM ===
+/* === DOM === */
 const input = document.getElementById('input');
 const sendBtn = document.getElementById('send');
 const msgsContainer = document.getElementById('messages');
 const scrollDownBtn = document.getElementById('scroll-down');
-const inputArea = document.querySelector('.input-area');
-const sideMenu = document.getElementById('sideMenu');
-const sideMenuBg = document.getElementById('sideMenuBg');
-const burger = document.getElementById('burgerBtn');
-const closeBtn = document.getElementById('sideCloseBtn');
-const settingsBtn = document.getElementById('settingsBtn');
-const settingsGroup = document.getElementById('settingsGroup');
-const themeSwitch = document.getElementById('themeSwitch');
-const notifSwitch = document.getElementById('notifSwitch');
-const langRow = document.getElementById('langRow');
-const langList = document.getElementById('langList');
-const currLangName = document.getElementById('currLangName');
-const currLangGray = document.getElementById('currLangGray');
-const langArrow = document.getElementById('langArrow');
-const mainLogo = document.getElementById('mainLogo');
-const loaderLogo = document.getElementById('loaderLogo');
-const mainTitle = document.getElementById('mainTitle');
-const loaderTitle = document.getElementById('loaderTitle');
-const loaderSubtitle = document.getElementById('loaderSubtitle');
-const sideMenuList = document.getElementById('sideMenuList');
-const saveSettingsBtn = document.getElementById('saveSettingsBtn');
+const aiVersionBtn = document.getElementById('aiVersionBtn');
+const aiVersionPopup = document.getElementById('aiVersionPopup');
+const aiVersionArrow = document.getElementById('aiVersionArrow');
+const aiVersionSelector = document.getElementById('aiVersionSelector');
 const notifPopup = document.getElementById('notifPopup');
 const notifPopupMsg = document.getElementById('notifPopupMsg');
 
-// === I18N INIT ===
-input.placeholder = i18n[settingsBuffer.lang].ph;
-sendBtn.textContent = i18n[settingsBuffer.lang].send;
-function updateMenuI18n() {
-  let menuMap = {
-    profile: {ru:"Мой профиль",en:"My profile",ua:"Мій профіль"},
-    subscription: {ru:"Подписка",en:"Subscription",ua:"Підписка"},
-    settings: {ru:"Настройки",en:"Settings",ua:"Налаштування"},
-    notifications: {ru:"Уведомления",en:"Notifications",ua:"Сповіщення"},
-    theme: {ru:"Тема",en:"Theme",ua:"Тема"},
-    language: {ru:"Язык интерфейса",en:"Language",ua:"Мова"},
-    save: {ru:"Сохранить изменения",en:"Save changes",ua:"Зберегти зміни"},
-  };
-  let curr = settingsBuffer.lang || 'ru';
-  sideMenuList.querySelectorAll('[data-menu=profile] .menu-text').forEach(el=>el.textContent=menuMap.profile[curr]||menuMap.profile['ru']);
-  sideMenuList.querySelectorAll('[data-menu=subscription] .menu-text').forEach(el=>el.textContent=menuMap.subscription[curr]||menuMap.subscription['ru']);
-  settingsBtn.querySelector('.menu-text').textContent = menuMap.settings[curr]||menuMap.settings['ru'];
-  settingsGroup.querySelectorAll('.side-switch-row')[0].querySelector('.menu-text').textContent = menuMap.notifications[curr]||menuMap.notifications['ru'];
-  settingsGroup.querySelectorAll('.side-switch-row')[1].querySelector('.menu-text').textContent = menuMap.theme[curr]||menuMap.theme['ru'];
-  settingsGroup.querySelectorAll('.side-switch-row')[2].querySelector('.menu-text').textContent = menuMap.language[curr]||menuMap.language['ru'];
-  saveSettingsBtn.textContent = menuMap.save[curr]||menuMap.save['ru'];
+/* === Вспомогательные функции для UI/локализации === */
+function updateI18n() {
+  input.placeholder = i18n[settingsBuffer.lang].ph;
+  sendBtn.textContent = i18n[settingsBuffer.lang].send;
+  // Side menu
+  document.querySelector('[data-menu=profile] .menu-text').textContent = i18n[settingsBuffer.lang].menu_profile;
+  document.querySelector('[data-menu=subscription] .menu-text').textContent = i18n[settingsBuffer.lang].menu_sub;
+  document.getElementById('settingsBtn').querySelector('.menu-text').textContent = i18n[settingsBuffer.lang].menu_settings;
+  document.querySelectorAll('.side-switch-row')[0].querySelector('.menu-text').textContent = i18n[settingsBuffer.lang].menu_notif;
+  document.querySelectorAll('.side-switch-row')[1].querySelector('.menu-text').textContent = i18n[settingsBuffer.lang].menu_theme;
+  document.querySelectorAll('.side-switch-row')[2].querySelector('.menu-text').textContent = i18n[settingsBuffer.lang].menu_lang;
+  document.getElementById('saveSettingsBtn').textContent = i18n[settingsBuffer.lang].save;
 }
 function updateLangName(){
   let found = langs.find(l=>l.code===settingsBuffer.lang);
-  currLangName.textContent = found ? found.name : settingsBuffer.lang;
-  currLangGray.textContent = `(${settingsBuffer.lang})`;
+  document.getElementById('currLangName').textContent = found ? found.name : settingsBuffer.lang;
+  document.getElementById('currLangGray').textContent = `(${settingsBuffer.lang})`;
 }
-updateLangName();
-
-// === THEME, SETTINGS, LANG ===
-function setTheme(dark, fast){
+function setTheme(dark){
   document.body.classList.toggle('dark',dark);
-  mainLogo.style.filter = dark ? "invert(1)" : "";
-  loaderLogo.style.filter = dark ? "invert(1)" : "";
-  mainTitle.style.color = dark ? "#fff" : "#000";
-  loaderTitle.style.color = dark ? "#fff" : "#000";
-  loaderSubtitle.style.color = dark ? "#fff" : "#222";
-  Array.from(burger.children).forEach(span=>span.style.background=dark?'#fff':'#000');
-  themeSwitch.classList.toggle('on',dark);
-  if(fast){
-    document.body.style.transition = "none";
-    mainLogo.style.transition = "none";
-    loaderLogo.style.transition = "none";
-    mainTitle.style.transition = "none";
-    loaderTitle.style.transition = "none";
-    loaderSubtitle.style.transition = "none";
-  } else {
-    document.body.style.transition = "";
-    mainLogo.style.transition = "";
-    loaderLogo.style.transition = "";
-    mainTitle.style.transition = "";
-    loaderTitle.style.transition = "";
-    loaderSubtitle.style.transition = "";
-  }
+  document.getElementById('mainLogo').style.filter = dark ? "invert(1)" : "";
 }
-function setNotif(on){
-  notifSwitch.classList.toggle('on',on);
+function setNotif(on){ document.getElementById('notifSwitch').classList.toggle('on',on); }
+function showNotifPopup(text, err) {
+  notifPopupMsg.textContent = text;
+  notifPopup.style.background = err ? "#f33" : "#0e0";
+  notifPopup.classList.add('show');
+  setTimeout(()=>notifPopup.classList.remove('show'), err ? 2600 : 1700);
 }
-function showSaveBtnIfChanged() {
-  if (settingsBuffer.theme !== lastSavedSettings.theme ||
-      settingsBuffer.notif !== lastSavedSettings.notif ||
-      settingsBuffer.lang !== lastSavedSettings.lang) {
-    saveSettingsBtn.classList.remove('hide');
-    saveSettingsBtn.style.display = '';
-    setTimeout(()=>saveSettingsBtn.style.opacity='1',10);
-  } else {
-    saveSettingsBtn.style.opacity = "0";
-    setTimeout(()=>{saveSettingsBtn.classList.add('hide');}, 320);
-  }
-}
-burger.onclick = ()=>{ sideMenu.classList.add('active'); sideMenuBg.classList.add('active'); }
-closeBtn.onclick = ()=>{ sideMenu.classList.remove('active'); sideMenuBg.classList.remove('active'); }
-sideMenuBg.onclick = ()=>{ sideMenu.classList.remove('active'); sideMenuBg.classList.remove('active'); }
-document.addEventListener('keydown', e=>{
-  if(e.key==='Escape' && sideMenu.classList.contains('active')) {
-    sideMenu.classList.remove('active'); sideMenuBg.classList.remove('active');
-  }
-});
-let settingsOpen = false;
-settingsBtn.onclick = function() {
-  settingsOpen = !settingsOpen;
-  settingsGroup.classList.toggle('open',settingsOpen);
-  settingsBtn.querySelector('.side-arrow').style.transform = settingsOpen ? "rotate(180deg)" : "rotate(0deg)";
-  if(!settingsOpen) {
-    langList.classList.remove('show');
-    langArrow.classList.remove('open');
-  }
-};
-themeSwitch.onclick = ()=>{
-  settingsBuffer.theme = !settingsBuffer.theme;
-  setTheme(settingsBuffer.theme, true);
-  showSaveBtnIfChanged();
-};
-notifSwitch.onclick = ()=>{
-  settingsBuffer.notif = !settingsBuffer.notif;
-  setNotif(settingsBuffer.notif);
-  showSaveBtnIfChanged();
-  if (settingsBuffer.notif) {
-    if (window.Notification && Notification.permission !== "granted") {
-      Notification.requestPermission().then(res=>{
-        if (res === "granted") {
-          showNotifPopup(i18n[settingsBuffer.lang].notifOn);
-        } else {
-          settingsBuffer.notif = false;
-          setNotif(false);
-          showNotifPopup(i18n[settingsBuffer.lang].notifError, true);
-        }
-      });
-    } else if (window.Notification && Notification.permission === "granted") {
-      showNotifPopup(i18n[settingsBuffer.lang].notifOn);
-    } else {
-      showNotifPopup(i18n[settingsBuffer.lang].notifAllow, true);
-    }
-  } else {
-    showNotifPopup(i18n[settingsBuffer.lang].notifOff, true);
-  }
-};
 function renderLangList(){
+  let langList = document.getElementById('langList');
   langList.innerHTML = '';
   langs.forEach(l=>{
     const li = document.createElement('div');
     li.className = 'side-lang-item' + (l.code===settingsBuffer.lang?' active':'');
     li.textContent = l.name;
-    li.onclick = ()=>{
-      settingsBuffer.lang = l.code;
-      updateLangName();
-      input.placeholder = i18n[settingsBuffer.lang].ph;
-      sendBtn.textContent = i18n[settingsBuffer.lang].send;
-      updateMenuI18n();
-      langList.classList.remove('show');
-      langArrow.classList.remove('open');
-      showSaveBtnIfChanged();
-    };
+    li.onclick = ()=>{ settingsBuffer.lang = l.code; updateLangName(); updateI18n(); showSaveBtnIfChanged(); langList.classList.remove('show'); };
     langList.appendChild(li);
   });
 }
-renderLangList();
-langRow.onclick = (e)=>{
-  renderLangList();
-  langList.classList.toggle('show');
-  langArrow.classList.toggle('open', langList.classList.contains('show'));
-  e.stopPropagation();
+function showSaveBtnIfChanged() {
+  let btn = document.getElementById('saveSettingsBtn');
+  if (settingsBuffer.theme !== lastSavedSettings.theme ||
+      settingsBuffer.notif !== lastSavedSettings.notif ||
+      settingsBuffer.lang !== lastSavedSettings.lang) {
+    btn.classList.remove('hide'); btn.style.display = ''; setTimeout(()=>btn.style.opacity='1',10);
+  } else { btn.style.opacity = "0"; setTimeout(()=>{btn.classList.add('hide');}, 320);}
+}
+
+/* === МЕНЮ, НАСТРОЙКИ, ЯЗЫК === */
+document.getElementById('burgerBtn').onclick = ()=>{ sideMenu.classList.add('active'); sideMenuBg.classList.add('active'); }
+document.getElementById('sideCloseBtn').onclick = ()=>{ sideMenu.classList.remove('active'); sideMenuBg.classList.remove('active'); }
+document.getElementById('sideMenuBg').onclick = ()=>{ sideMenu.classList.remove('active'); sideMenuBg.classList.remove('active'); }
+document.getElementById('settingsBtn').onclick = function() {
+  settingsGroup.classList.toggle('open');
+  this.querySelector('.side-arrow').style.transform = settingsGroup.classList.contains('open') ? "rotate(180deg)" : "";
+  if(!settingsGroup.classList.contains('open')) { langList.classList.remove('show'); langArrow.classList.remove('open'); }
 };
-document.body.addEventListener('click', ()=>{ langList.classList.remove('show'); langArrow.classList.remove('open'); });
-saveSettingsBtn.onclick = ()=>{
+document.getElementById('themeSwitch').onclick = ()=>{ settingsBuffer.theme = !settingsBuffer.theme; setTheme(settingsBuffer.theme); showSaveBtnIfChanged(); }
+document.getElementById('notifSwitch').onclick = ()=>{ settingsBuffer.notif = !settingsBuffer.notif; setNotif(settingsBuffer.notif); showSaveBtnIfChanged(); }
+document.getElementById('langRow').onclick = (e)=>{ renderLangList(); langList.classList.toggle('show'); langArrow.classList.toggle('open', langList.classList.contains('show')); e.stopPropagation(); }
+document.getElementById('saveSettingsBtn').onclick = ()=>{
   localStorage.setItem('neurona_theme', settingsBuffer.theme ? 'dark' : 'light');
   localStorage.setItem('neurona_notif', settingsBuffer.notif ? 'on' : 'off');
   localStorage.setItem('neurona_lang', settingsBuffer.lang);
   lastSavedSettings = {...settingsBuffer};
-  saveSettingsBtn.style.opacity = "0";
-  setTimeout(()=>saveSettingsBtn.classList.add('hide'), 320);
-  updateMenuI18n();
-  input.placeholder = i18n[settingsBuffer.lang].ph;
-  sendBtn.textContent = i18n[settingsBuffer.lang].send;
+  updateI18n();
+  setTheme(settingsBuffer.theme);
+  showNotifPopup(settingsBuffer.notif ? i18n[settingsBuffer.lang].popupNotifOn : i18n[settingsBuffer.lang].popupNotifOff);
+  if (settingsBuffer.notif) startNotifAutoPush();
+  else if (notifInterval) clearInterval(notifInterval);
 };
-function loadSettings(){
-  setTheme(settingsBuffer.theme, true);
-  setNotif(settingsBuffer.notif);
-  updateLangName();
-  renderLangList();
-  updateMenuI18n();
-  input.placeholder = i18n[settingsBuffer.lang].ph;
-  sendBtn.textContent = i18n[settingsBuffer.lang].send;
-}
-loadSettings();
-(function applyThemeOnLoad(){
-  let dark = settingsBuffer.theme;
-  setTheme(dark, true);
-})();
 
-// === LOADER ===
-window.addEventListener('DOMContentLoaded', function() {
-  const loader = document.getElementById('loader');
-  const topBar = document.getElementById('top-bar');
-  topBar.classList.add('hide');
-  setTimeout(function() {
-    loader.classList.add('hide');
-    setTimeout(function() {
-      document.body.classList.add('shown');
-      loader.style.display = 'none';
-      topBar.classList.remove('hide');
-      loadHistory();
-      setTimeout(function() { scrollChatToBottom(true); }, 300);
-    }, 1000);
-  }, 4000);
+/* === Переключатель версий (AI/TRADE) === */
+function switchUiMode(ver){
+  currAiVersion = ver;
+  // AI режим (чат)
+  if (currAiVersion === 'neurona1') {
+    document.querySelector('.chat-container').style.display = '';
+    document.getElementById('tradeSignalsView')?.remove();
+    document.getElementById('mainTitle').textContent = "NEURONA";
+  }
+  // Trade режим (сигналы+новости)
+  if (currAiVersion === 'tradeai') {
+    document.querySelector('.chat-container').style.display = 'none';
+    if (!document.getElementById('tradeSignalsView')) {
+      let view = document.createElement('div');
+      view.id = 'tradeSignalsView';
+      view.style = "width:100%;max-width:360px;margin:0 auto;";
+      view.innerHTML = `
+      <div style="background:rgba(255,255,255,0.96);border-radius:14px;border:1.6px solid #d1d1d1;box-shadow:0 7px 36px 0 rgba(30,40,80,0.19),0 2.5px 10px 0 rgba(50,50,90,0.14);padding:15px 0 7px 0;margin-bottom:12px;">
+        <div style="font-size:1.19em;font-weight:bold;text-align:center;margin-bottom:7px">${i18n[settingsBuffer.lang].signals}</div>
+        <div id="signalsBox" style="padding:7px 12px 14px 12px;min-height:57px;"></div>
+        <div style="font-size:1.12em;font-weight:bold;text-align:center;margin:17px 0 7px 0;">${i18n[settingsBuffer.lang].news}</div>
+        <div id="newsBox" style="padding:7px 12px 17px 12px;min-height:57px;max-height:210px;overflow-y:auto;"></div>
+        <button id="refreshTradeView" style="margin:0 auto 0 auto;display:block;background:#444;color:#fff;padding:8px 16px;border-radius:7px;border:none;cursor:pointer;font-weight:bold;">⟳ ${i18n[settingsBuffer.lang].save}</button>
+      </div>
+      `;
+      document.getElementById('app').appendChild(view);
+      document.getElementById('refreshTradeView').onclick = updateTradeView;
+    }
+    document.getElementById('mainTitle').textContent = "TRADE AI";
+    updateTradeView();
+  }
+}
+aiVersionBtn.onclick = function(e) {
+  e.stopPropagation();
+  aiVersionPopup.classList.toggle('show');
+  aiVersionArrow.style.transform = aiVersionPopup.classList.contains('show') ? "rotate(180deg)" : "";
+};
+aiVersionPopup.querySelectorAll('.ai-version-item').forEach(item => {
+  item.onclick = function() {
+    aiVersionPopup.querySelectorAll('.ai-version-item').forEach(i=>i.classList.remove('active'));
+    item.classList.add('active');
+    switchUiMode(item.getAttribute('data-value'));
+    aiVersionPopup.classList.remove('show');
+    aiVersionArrow.style.transform = "";
+  };
+});
+document.body.addEventListener('click', function(e) {
+  if (!aiVersionSelector.contains(e.target)) aiVersionPopup.classList.remove('show');
+  aiVersionArrow.style.transform = "";
 });
 
-// === CHAT LOGIC ===
-let messages = [], typingProcess = null, botIsTyping = false;
+/* === Trade Signals/News (tradeai view) === */
+async function updateTradeView(){
+  // Получаем сигналы
+  let signalsBox = document.getElementById('signalsBox');
+  let newsBox = document.getElementById('newsBox');
+  signalsBox.innerHTML = "<span style='color:#666'>Загрузка...</span>";
+  newsBox.innerHTML = "<span style='color:#666'>Загрузка...</span>";
+  try {
+    let all = await fetch(ENDPOINTS.ALL + "?t=" + Date.now()).then(r=>r.json());
+    let sig = all.signals || [];
+    let sigHtml = sig.length
+      ? "<ol style='margin-left:17px'>" + sig.map(s=>`<li style="margin-bottom:8px"><b>${s.type} ${s.symbol}</b> ${s.price ? ('<b>@'+s.price+'</b>') : ''}<br><i>${s.reason||''}</i>${s.time?('<span style="color:#888;font-size:.91em;margin-left:9px;">('+s.time+')</span>'):''}</li>`).join('') + "</ol>"
+      : "<span style='color:#888'>Нет сигналов</span>";
+    signalsBox.innerHTML = sigHtml;
+    // Новости
+    let news = all.news || [];
+    let newsHtml = news.length
+      ? "<ol style='margin-left:17px'>" + news.map(n=>`<li style="margin-bottom:7px"><b>${n.title||''}</b> ${n.url?`<a href="${n.url}" target="_blank" style="color:#277be4;font-size:.97em">[Источник]</a>`:""}${n.time?('<span style="color:#888;font-size:.91em;margin-left:9px;">('+n.time+')</span>'):''}<br><i>${n.impact||''}</i></li>`).join('') + "</ol>"
+      : "<span style='color:#888'>Нет новостей</span>";
+    newsBox.innerHTML = newsHtml;
+  } catch(e){
+    signalsBox.innerHTML = "<span style='color:#f33'>Ошибка загрузки сигналов!</span>";
+    newsBox.innerHTML = "<span style='color:#f33'>Ошибка загрузки новостей!</span>";
+  }
+}
+
+/* === ЧАТ AI — основное окно === */
+let messages = [], botIsTyping = false;
 function saveHistory(){ localStorage.setItem('neurona_history', JSON.stringify(messages)); }
 function loadHistory(){
   const h = JSON.parse(localStorage.getItem('neurona_history')||'[]');
   if(h.length){
-    messages=h;
-    msgsContainer.innerHTML = '';
+    messages=h; msgsContainer.innerHTML = '';
     h.forEach(m=> addMessage(m.content,m.role,m.time));
     scrollChatToBottom(true);
   }
-}
-function formatBotMessage(text) {
-  text = text.replace(/[\u{FE00}-\u{FE0F}]/gu, "");
-  text = text.replace(/\uFFFD/g, "");
-  text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^\)]+)\)/g, function(_, name, url) {
-    let dark = document.body.classList.contains('dark');
-    return `<a href="${url}" target="_blank" style="color:${dark ? '#68a6ff' : '#286be6'};font-size:.98em;"><b>${name}</b></a>`;
-  });
-  text = text.replace(/\*\*([^\*]+)\*\*/g, '<b>$1</b>');
-  text = text.replace(/(^|\n)((?:\d+\.\s.*\n?)+)/gm, (m, p1, block) => {
-    const items = block.trim().split(/\n/).filter(Boolean);
-    let out = '<ol>';
-    for(let i=0; i<items.length; ++i){
-      out += `<li>${items[i].replace(/^\d+\.\s?/, '')}</li>`;
-    }
-    out += '</ol>';
-    return p1 + out;
-  });
-  text = text.replace(/(^|\n)((?:^[-•]\s.+\n?)+)/gm, (m, p1, block) => {
-    const items = block.trim().split(/\n/).filter(Boolean);
-    let out = '<ul>';
-    for(let i=0; i<items.length; ++i){
-      out += '<li>' + items[i].replace(/^[-•]\s?/, '').trim() + '</li>';
-    }
-    out += '</ul>';
-    return p1 + out;
-  });
-  text = text.replace(/\n{2,}/g, '</p><p>');
-  text = text.replace(/\n/g, '<br>');
-  if (!/^<p>/.test(text)) text = '<p>' + text;
-  text = text.replace(/(<ol>|<ul>)/g, '</p>$1<p>');
-  text = text.replace(/<\/ol>|<\/ul>/g, '$&<p>');
-  text = text.replace(/<p><\/p>/g, '');
-  return text;
 }
 function addMessage(text, who, time){
   if (!time) time = new Date().toLocaleTimeString().slice(0,5);
@@ -328,155 +214,122 @@ function addMessage(text, who, time){
   msg.className = `message ${who}`;
   const content = document.createElement('div');
   content.className = 'msg-content';
-  if (who === "bot") {
-    content.innerHTML = formatBotMessage(text);
-  } else if (who === "user") {
-    content.innerHTML = text.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank">$1</a>');
-  } else {
-    content.textContent = text;
-  }
+  content.innerHTML = who === "bot" ? formatBotMessage(text) : text.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank">$1</a>');
   msg.appendChild(content);
   const timeEl = document.createElement('span');
-  timeEl.className = 'msg-time';
-  timeEl.textContent = time;
+  timeEl.className = 'msg-time'; timeEl.textContent = time;
   msg.appendChild(timeEl);
-  const copyBtn = document.createElement('button');
-  copyBtn.className = 'copy-btn';
-  copyBtn.innerHTML = '<svg width="18" height="18"><use href="#copy-ico"/></svg>';
-  copyBtn.onclick = ()=>{
-    navigator.clipboard.writeText(content.textContent||content.innerText);
-    showNotifPopup("Скопировано!",false);
-  };
-  msg.appendChild(copyBtn);
   msgsContainer.appendChild(msg);
-  messages.push({content:text,role:who,time});
-  saveHistory();
-  scrollChatToBottom();
+  setTimeout(()=>{timeEl.style.display='inline'}, 80);
+  scrollChatToBottom(true);
 }
-
+function formatBotMessage(text){
+  text = text.replace(/\n/g, '<br>').replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
+  return text;
+}
 function addTyping(){
-  if (document.getElementById('typing-msg')) return;
-  const msg = document.createElement('div');
-  msg.className = 'message bot';
-  msg.id = 'typing-msg';
-  msg.innerHTML = `<div class="typing-dots">
-    <span></span><span></span><span></span>
-  </div>`;
-  msgsContainer.appendChild(msg);
-  scrollChatToBottom();
+  const d = document.createElement('div');
+  d.className = 'message bot typing';
+  d.innerHTML = `<span class="typing-dots"><span class="tdot tdot1"></span><span class="tdot tdot2"></span><span class="tdot tdot3"></span></span>`;
+  msgsContainer.appendChild(d); scrollChatToBottom(true, true); return d;
 }
-function removeTyping(){
-  const el = document.getElementById('typing-msg');
-  if(el) el.remove();
-}
-function scrollChatToBottom(force){
-  if(force){ msgsContainer.scrollTop = msgsContainer.scrollHeight; return; }
-  const max = msgsContainer.scrollHeight-msgsContainer.clientHeight;
-  if (msgsContainer.scrollTop >= max-80) {
-    msgsContainer.scrollTop = msgsContainer.scrollHeight;
-  } else {
-    scrollDownBtn.style.display = '';
-    setTimeout(()=>scrollDownBtn.style.opacity='1',30);
+function scrollChatToBottom(smooth){ msgsContainer.scrollTo({top: msgsContainer.scrollHeight, behavior: smooth?'smooth':'auto'});}
+sendBtn.onclick = async ()=>{
+  const txt = input.value.trim();
+  if(!txt) return;
+  const nowTime = new Date().toLocaleTimeString().slice(0,5);
+  addMessage(txt,'user',nowTime);
+  input.value=''; messages.push({ role:'user', content:txt, time: nowTime });
+  const typing = addTyping(); botIsTyping = true;
+  // Генерация ответа через AI
+  let safeMessages = messages; if (safeMessages.length > 14) safeMessages = safeMessages.slice(-14);
+  const payload = { model:'gpt-4o', messages:[{role:'system',content:'Ты — NEURONA, персональный AI.'},...safeMessages], temperature:1.11, user:"neurona-user" };
+  try {
+    const resp = await fetch(ENDPOINTS.OPENAI, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) });
+    const data = await resp.json();
+    typing.remove(); botIsTyping = false;
+    let reply = data.choices?.[0]?.message?.content || (data.error ? ('[OpenAI Error]: ' + data.error) : i18n[settingsBuffer.lang].internal);
+    addMessage(reply,'bot', new Date().toLocaleTimeString().slice(0,5));
+    messages.push({ role:'assistant', content:reply, time: new Date().toLocaleTimeString().slice(0,5) }); saveHistory();
+    scrollChatToBottom(true, true);
+  } catch {
+    typing.remove(); botIsTyping = false;
+    addMessage(i18n[settingsBuffer.lang].internal,'bot', new Date().toLocaleTimeString().slice(0,5));
+    scrollChatToBottom(true, true);
   }
-}
-scrollDownBtn.onclick = function() {
-  msgsContainer.scrollTop = msgsContainer.scrollHeight;
-  scrollDownBtn.style.opacity = '0';
-  setTimeout(()=>scrollDownBtn.style.display='none',220);
-};
-msgsContainer.addEventListener('scroll', function() {
-  const max = msgsContainer.scrollHeight-msgsContainer.clientHeight;
-  if (msgsContainer.scrollTop >= max-30) {
-    scrollDownBtn.style.opacity = '0';
-    setTimeout(()=>scrollDownBtn.style.display='none',220);
-  }
-});
-
-// === INPUT HANDLING ===
-function clearInput(){ input.value = ''; input.style.height = '44px'; }
-input.oninput = function() {
-  input.style.height = "44px";
-  input.style.height = (input.scrollHeight) + "px";
 };
 input.addEventListener('keydown', function(e){
-  if(e.key === "Enter" && !e.shiftKey){
-    e.preventDefault();
-    sendBtn.click();
-  }
+  if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); sendBtn.click(); }
 });
 
-// === SENDING / AI ===
-async function sendMessage(){
-  const val = input.value.trim();
-  if(!val) return;
-  addMessage(val,"user");
-  clearInput();
-  addTyping();
-  botIsTyping = true;
+/* === Push-уведомления (автомат) === */
+async function askNotifPermission() {
+  if (!('Notification' in window)) return false;
+  if (Notification.permission === 'granted') return true;
+  if (Notification.permission === 'denied') return false;
+  let result = await Notification.requestPermission();
+  return result === 'granted';
+}
+function sendLocalNotif(title, body, url) {
+  if (!('Notification' in window)) return;
+  if (Notification.permission !== 'granted') return;
+  navigator.serviceWorker.getRegistration().then(reg => {
+    if (reg) reg.showNotification(title, { body: body, icon: 'https://i.ibb.co/XfKRzvcy/27.png', badge: 'https://i.ibb.co/XfKRzvcy/27.png', data: { url: url || '/' } });
+    else new Notification(title, { body: body, icon: 'https://i.ibb.co/XfKRzvcy/27.png' });
+  });
+}
+function startNotifAutoPush() {
+  if (notifInterval) clearInterval(notifInterval);
+  notifInterval = setInterval(() => { checkPricePush(); checkNewsPush(); }, 121000);
+  checkPricePush(); checkNewsPush();
+}
+async function checkPricePush() {
   try {
-    // Твой запрос к AI (замени url/headers/тело под свой backend!)
-    const resp = await fetch("/api/message",{
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({q:val,lang:settingsBuffer.lang})
-    });
-    const data = await resp.json();
-    removeTyping();
-    if(data && data.a){
-      addMessage(data.a,"bot");
-    } else {
-      addMessage(i18n[settingsBuffer.lang].internal,"bot");
-    }
-  } catch(e){
-    removeTyping();
-    addMessage(i18n[settingsBuffer.lang].internal,"bot");
-  }
-  botIsTyping = false;
-}
-sendBtn.onclick = sendMessage;
-
-// === PUSH NOTIFICATIONS ===
-function showNotifPopup(msg, error){
-  notifPopupMsg.textContent = msg;
-  notifPopup.classList.remove('hide','error');
-  notifPopup.classList.toggle('error',!!error);
-  notifPopup.style.opacity = "1";
-  notifPopup.style.display = '';
-  setTimeout(()=>notifPopup.style.opacity='0',2000);
-  setTimeout(()=>notifPopup.classList.add('hide'),2200);
-}
-// Пример: Показывать пуш при новых новостях
-function notifyNews(msg){
-  if (!settingsBuffer.notif) return;
-  if (window.Notification && Notification.permission === "granted") {
-    new Notification("NEURONA AI", {body:msg, icon:"/neurona-icon-192.png"});
-  }
-  showNotifPopup(msg,false);
-}
-// === News auto-update ===
-async function updateNewsAndPrices(){
-  try {
-    const res = await fetch('/api/all');
-    const data = await res.json();
-    if(data.news && Array.isArray(data.news)){
-      // Очистить старые, добавить только новые
-      const last = messages.filter(m=>m.role==='news');
-      if(!last.length || (last[last.length-1].content!==data.news[data.news.length-1])){
-        data.news.forEach((n,i)=>{
-          if(i>=last.length) addMessage("📰 " + n,"news");
-        });
-        notifyNews(i18n[settingsBuffer.lang].newsPush);
+    let cmcRes = await fetch(ENDPOINTS.CMC); let cmcJson = await cmcRes.json();
+    let arr = cmcJson?.data || [], watchArr = arr.filter(c => SYMBOLS_TO_WATCH.includes((c.symbol||"").toUpperCase()));
+    for (let c of watchArr) {
+      let symbol = c.symbol; let now = c.quote?.USD?.price || 0;
+      let old = lastPrices[symbol]?.price || now;
+      let percent = ((now-old)/old)*100; let absPercent = Math.abs(percent);
+      if (!lastPrices[symbol]) lastPrices[symbol] = { price: now, lastNotifPercents: [] };
+      let notifPercents = lastPrices[symbol].lastNotifPercents || [];
+      let rounded = Math.round(absPercent);
+      if (NOTIF_PERCENT_LEVELS.includes(rounded) && !notifPercents.includes(rounded) && absPercent >= 0.95) {
+        let sign = percent > 0 ? '+' : '-';
+        let msg = `Цена ${symbol} изменилась на ${sign}${rounded}% (NEURONA)`;
+        sendLocalNotif(msg, `Текущая цена: $${now.toLocaleString(undefined, {maximumFractionDigits:5})}`, null);
+        notifPercents.push(rounded);
+        if (notifPercents.length > 10) notifPercents = notifPercents.slice(-10);
       }
+      if (absPercent < 0.95) lastPrices[symbol].lastNotifPercents = [];
+      else lastPrices[symbol].lastNotifPercents = notifPercents;
+      lastPrices[symbol].price = now;
     }
-    // Можно добавить auto-обновление цен и т.п.
   } catch(e){}
 }
-setInterval(updateNewsAndPrices, 15000);
+async function checkNewsPush() {
+  try {
+    let panicRes = await fetch(ENDPOINTS.CRYPTOPANIC); let newsRes = await fetch(ENDPOINTS.NEWS);
+    let panicJson = await panicRes.json(); let newsJson = await newsRes.json();
+    let allNews = []; if (panicJson.articles) allNews = allNews.concat(panicJson.articles); if (newsJson.articles) allNews = allNews.concat(newsJson.articles);
+    allNews.sort((a,b)=>new Date(b.time||b.published_at||0)-new Date(a.time||a.published_at||0));
+    let fresh = allNews.filter(n => n.id && !lastNewsIds.includes(n.id)).slice(0,2);
+    for (let n of fresh) {
+      sendLocalNotif(n.title ? `${n.title} (NEURONA)` : "Свежая крипто-новость (NEURONA)", (n.summary || n.title || '').slice(0,160) + (n.url ? '\n' + n.url : ''), n.url || '/');
+      lastNewsIds.push(n.id); if (lastNewsIds.length > 12) lastNewsIds = lastNewsIds.slice(-12);
+    }
+  } catch(e){}
+}
+/* === Service worker (обязателен для пушей) === */
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');
 
-// === INIT ALL ===
-window.onload = function(){
-  loadSettings();
-  setTheme(settingsBuffer.theme, true);
-  updateMenuI18n();
-  input.placeholder = i18n[settingsBuffer.lang].ph;
-  sendBtn.textContent = i18n[settingsBuffer.lang].send;
-};
+/* === Инициализация === */
+function appInit() {
+  updateI18n(); updateLangName(); renderLangList(); setTheme(settingsBuffer.theme);
+  if(settingsBuffer.notif) startNotifAutoPush();
+  loadHistory(); // для AI-режима
+}
+window.addEventListener('DOMContentLoaded', appInit);
+
+// Переключение режима при старте
+switchUiMode(currAiVersion);
