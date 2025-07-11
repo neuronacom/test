@@ -2,31 +2,27 @@ require('dotenv').config();
 const express = require('express');
 const fetch = require('node-fetch');
 const path = require('path');
+const Parser = require('rss-parser');
 const app = express();
 
 const TIMEOUT = 12000;
 const WATCHED_SYMBOLS = ['BTC', 'ETH', 'BNB', 'XRP', 'SOL'];
 
-// Для Cointelegraph/Coindesk RSS
-const Parser = require('rss-parser');
 const parser = new Parser();
-
 app.use(express.json({ limit: '1mb' }));
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 async function fetchTimeout(url, options = {}, timeout = TIMEOUT) {
   return Promise.race([
     fetch(url, options),
-    new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('timeout')), timeout)
-    ),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), timeout)),
   ]);
 }
 
+// --- МАКСИМУМ КРИПТО-НОВОСТНЫХ ИСТОЧНИКОВ ---
 async function getAllCryptoNews() {
   let news = [];
   const seen = new Set();
-
   // 1. Cryptopanic
   try {
     const url = `https://cryptopanic.com/api/v1/posts/?auth_token=${process.env.CRYPTOPANIC_API_KEY}&public=true&currencies=BTC,ETH,TON,SOL,BNB`;
@@ -46,10 +42,9 @@ async function getAllCryptoNews() {
       }
     });
   } catch {}
-
   // 2. GNews
   try {
-    const url = `https://gnews.io/api/v4/search?q=crypto&token=${process.env.GNEWS_API_KEY}&lang=en&max=7`;
+    const url = `https://gnews.io/api/v4/search?q=crypto&token=${process.env.GNEWS_API_KEY}&lang=en&max=8`;
     const res = await fetchTimeout(url);
     const js = await res.json();
     (js.articles || []).forEach(a => {
@@ -66,8 +61,7 @@ async function getAllCryptoNews() {
       }
     });
   } catch {}
-
-  // 3. CryptoCompare News (EN)
+  // 3. CryptoCompare
   try {
     const url = 'https://min-api.cryptocompare.com/data/v2/news/?lang=EN';
     const res = await fetchTimeout(url);
@@ -86,8 +80,7 @@ async function getAllCryptoNews() {
       }
     });
   } catch {}
-
-  // 4. Cointelegraph RSS
+  // 4. Cointelegraph
   try {
     const feed = await parser.parseURL('https://cointelegraph.com/rss');
     (feed.items || []).forEach(a => {
@@ -104,8 +97,7 @@ async function getAllCryptoNews() {
       }
     });
   } catch {}
-
-  // 5. CoinDesk RSS
+  // 5. Coindesk
   try {
     const feed = await parser.parseURL('https://www.coindesk.com/arc/outboundfeeds/rss/');
     (feed.items || []).forEach(a => {
@@ -116,16 +108,15 @@ async function getAllCryptoNews() {
           title: a.title,
           url: a.link,
           time: a.pubDate,
-          source: 'CoinDesk',
+          source: 'Coindesk',
           impact: ''
         });
       }
     });
   } catch {}
-
-  // 6. Investing.com (через Cryptopanic)
+  // 6. Investing.com через Cryptopanic
   try {
-    const url = 'https://cryptopanic.com/api/v1/posts/?auth_token=' + process.env.CRYPTOPANIC_API_KEY + '&public=true&currencies=BTC,ETH,TON,SOL,BNB&kind=news';
+    const url = `https://cryptopanic.com/api/v1/posts/?auth_token=${process.env.CRYPTOPANIC_API_KEY}&public=true&currencies=BTC,ETH,TON,SOL,BNB&kind=news`;
     const res = await fetchTimeout(url);
     const js = await res.json();
     (js.results || []).forEach(n => {
@@ -142,8 +133,7 @@ async function getAllCryptoNews() {
       }
     });
   } catch {}
-
-  // Сортировка, свежесть (24ч), максимум 12 новостей
+  // --- Обрезка и сортировка ---
   const now = Date.now();
   return news
     .filter(a => {
@@ -151,11 +141,10 @@ async function getAllCryptoNews() {
       return now - t < 25 * 3600 * 1000;
     })
     .sort((a, b) => new Date(b.time) - new Date(a.time))
-    .slice(0, 12);
+    .slice(0, 18);
 }
 
-// -- API endpoints --
-
+// API endpoints
 app.get('/api/news', async (req, res) => {
   try {
     const news = await getAllCryptoNews();
@@ -164,17 +153,15 @@ app.get('/api/news', async (req, res) => {
     res.json({ articles: [] });
   }
 });
-
-// CoinMarketCap API (только BTC, ETH, BNB, XRP, SOL, всегда в этом порядке)
+// CoinMarketCap (BTC, ETH, BNB, XRP, SOL)
 app.get('/api/cmc', async (req, res) => {
   try {
     const r = await fetchTimeout(
-      'https://pro-api.coinmarketcap.com/v1/cryptocurrency/listings/latest?start=1&limit=40&convert=USD',
+      'https://pro-api.coinmarketcap.com/v1/cryptocurrency/listings/latest?start=1&limit=50&convert=USD',
       { headers: { 'X-CMC_PRO_API_KEY': process.env.CMC_API_KEY } }
     );
     const js = await r.json();
     if (!js.data) return res.json({ data: [], error: 'No data' });
-    // Оставляем только нужные монеты, строго в нужном порядке
     const out = [];
     for (const symbol of WATCHED_SYMBOLS) {
       let c = js.data.find(d => (d.symbol || '').toUpperCase() === symbol);
@@ -185,8 +172,7 @@ app.get('/api/cmc', async (req, res) => {
     res.json({ data: [], error: 'CMC error' });
   }
 });
-
-// CoinGecko — любая монета, свежая цена и ссылка
+// CoinGecko — любая монета
 app.get('/api/coingecko', async (req, res) => {
   try {
     const query = (req.query.q || '').trim().toLowerCase();
@@ -210,8 +196,7 @@ app.get('/api/coingecko', async (req, res) => {
     res.json({ found: false });
   }
 });
-
-// Binance — актуальная цена пары
+// Binance price
 app.get('/api/binance', async (req, res) => {
   try {
     let symbol = (req.query.q || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -228,8 +213,7 @@ app.get('/api/binance', async (req, res) => {
     res.json({ found: false });
   }
 });
-
-// TradingView support/resistance
+// TradingView (support/resistance, парсинг с публичной страницы)
 app.get('/api/tview', async (req, res) => {
   try {
     const symbol = (req.query.symbol || 'BTC').toUpperCase();
@@ -242,7 +226,6 @@ app.get('/api/tview', async (req, res) => {
     res.json({ support: null, resistance: null, url: null });
   }
 });
-
 // OpenAI (GPT-4o)
 app.post('/api/openai', async (req, res) => {
   try {
@@ -263,11 +246,9 @@ app.post('/api/openai', async (req, res) => {
     res.status(500).json({ error: 'OpenAI error' });
   }
 });
-
 // PWA: index.html fallback
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
-
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server listening on ${PORT}`));
