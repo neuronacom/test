@@ -2,17 +2,17 @@ require('dotenv').config();
 const express = require('express');
 const fetch = require('node-fetch');
 const path = require('path');
-const Parser = require('rss-parser');
-const parser = new Parser();
 const app = express();
 
 const TIMEOUT = 12000;
-const WATCHED_SYMBOLS = ['BTC', 'ETH', 'BNB', 'XRP', 'SOL'];
+
+// Для Cointelegraph/Coindesk RSS
+const Parser = require('rss-parser');
+const parser = new Parser();
 
 app.use(express.json({ limit: '1mb' }));
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
-// Универсальный fetch с таймаутом
 async function fetchTimeout(url, options = {}, timeout = TIMEOUT) {
   return Promise.race([
     fetch(url, options),
@@ -22,10 +22,11 @@ async function fetchTimeout(url, options = {}, timeout = TIMEOUT) {
   ]);
 }
 
-// Сбор всех новостей
 async function getAllCryptoNews() {
   let news = [];
   const seen = new Set();
+
+  // 1. Cryptopanic
   try {
     const url = `https://cryptopanic.com/api/v1/posts/?auth_token=${process.env.CRYPTOPANIC_API_KEY}&public=true&currencies=BTC,ETH,TON,SOL,BNB`;
     const res = await fetchTimeout(url);
@@ -45,6 +46,7 @@ async function getAllCryptoNews() {
     });
   } catch {}
 
+  // 2. GNews
   try {
     const url = `https://gnews.io/api/v4/search?q=crypto&token=${process.env.GNEWS_API_KEY}&lang=en&max=7`;
     const res = await fetchTimeout(url);
@@ -64,6 +66,7 @@ async function getAllCryptoNews() {
     });
   } catch {}
 
+  // 3. CryptoCompare News (EN)
   try {
     const url = 'https://min-api.cryptocompare.com/data/v2/news/?lang=EN';
     const res = await fetchTimeout(url);
@@ -83,6 +86,7 @@ async function getAllCryptoNews() {
     });
   } catch {}
 
+  // 4. Cointelegraph RSS
   try {
     const feed = await parser.parseURL('https://cointelegraph.com/rss');
     (feed.items || []).forEach(a => {
@@ -100,6 +104,7 @@ async function getAllCryptoNews() {
     });
   } catch {}
 
+  // 5. CoinDesk RSS
   try {
     const feed = await parser.parseURL('https://www.coindesk.com/arc/outboundfeeds/rss/');
     (feed.items || []).forEach(a => {
@@ -117,6 +122,7 @@ async function getAllCryptoNews() {
     });
   } catch {}
 
+  // 6. Investing.com (через Cryptopanic)
   try {
     const url = 'https://cryptopanic.com/api/v1/posts/?auth_token=' + process.env.CRYPTOPANIC_API_KEY + '&public=true&currencies=BTC,ETH,TON,SOL,BNB&kind=news';
     const res = await fetchTimeout(url);
@@ -136,6 +142,7 @@ async function getAllCryptoNews() {
     });
   } catch {}
 
+  // Сортировка, свежесть (24ч), максимум 12 новостей
   const now = Date.now();
   return news
     .filter(a => {
@@ -146,7 +153,7 @@ async function getAllCryptoNews() {
     .slice(0, 12);
 }
 
-// --- API endpoints ---
+// -- API endpoints --
 
 app.get('/api/news', async (req, res) => {
   try {
@@ -157,25 +164,21 @@ app.get('/api/news', async (req, res) => {
   }
 });
 
+// CoinMarketCap API (Топ-5)
 app.get('/api/cmc', async (req, res) => {
   try {
     const r = await fetchTimeout(
-      'https://pro-api.coinmarketcap.com/v1/cryptocurrency/listings/latest?start=1&limit=40&convert=USD',
+      'https://pro-api.coinmarketcap.com/v1/cryptocurrency/listings/latest?start=1&limit=5&convert=USD',
       { headers: { 'X-CMC_PRO_API_KEY': process.env.CMC_API_KEY } }
     );
     const js = await r.json();
-    if (!js.data) return res.json({ data: [], error: 'No data' });
-    const out = [];
-    for (const symbol of WATCHED_SYMBOLS) {
-      let c = js.data.find(d => (d.symbol || '').toUpperCase() === symbol);
-      if (c) out.push(c);
-    }
-    res.json({ ...js, data: out });
+    res.json(js);
   } catch (e) {
     res.json({ data: [], error: 'CMC error' });
   }
 });
 
+// CoinGecko — любая монета, свежая цена и ссылка
 app.get('/api/coingecko', async (req, res) => {
   try {
     const query = (req.query.q || '').trim().toLowerCase();
@@ -200,6 +203,7 @@ app.get('/api/coingecko', async (req, res) => {
   }
 });
 
+// Binance — актуальная цена пары
 app.get('/api/binance', async (req, res) => {
   try {
     let symbol = (req.query.q || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -217,7 +221,7 @@ app.get('/api/binance', async (req, res) => {
   }
 });
 
-// TradingView уровни (сайт)
+// TradingView support/resistance
 app.get('/api/tview', async (req, res) => {
   try {
     const symbol = (req.query.symbol || 'BTC').toUpperCase();
@@ -231,35 +235,28 @@ app.get('/api/tview', async (req, res) => {
   }
 });
 
-// OpenAI GPT-4o (универсальный)
+// OpenAI (GPT-4o)
 app.post('/api/openai', async (req, res) => {
   try {
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      return res.status(500).json({ error: 'OPENAI_API_KEY not set' });
-    }
     const r = await fetchTimeout('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${apiKey}`,
+        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify(req.body)
     }, 30000);
     const js = await r.json();
-    if (js.error && js.error.message) {
-      // Важно: Печать ошибки в консоль Heroku!
-      console.error('OpenAI error:', js.error.message);
+    if(js.error && js.error.message){
       return res.status(500).json({ error: js.error.message });
     }
     res.json(js);
   } catch (e) {
-    console.error('OpenAI error:', e && e.message);
-    res.status(500).json({ error: (e && e.message) || 'OpenAI error' });
+    res.status(500).json({ error: 'OpenAI error' });
   }
 });
 
-// PWA fallback
+// PWA: index.html fallback
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
