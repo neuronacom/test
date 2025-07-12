@@ -4,16 +4,15 @@ const fetch = require('node-fetch');
 const path = require('path');
 const Parser = require('rss-parser');
 const parser = new Parser();
-// const cors = require('cors'); // Если нужен CORS, раскомментируй
 const app = express();
 
 const TIMEOUT = 12000;
 const WATCHED_SYMBOLS = ['BTC', 'ETH', 'BNB', 'XRP', 'SOL'];
 
 app.use(express.json({ limit: '1mb' }));
-// app.use(cors()); // Если нужен CORS для фронта
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
+// Универсальный fetch с таймаутом
 async function fetchTimeout(url, options = {}, timeout = TIMEOUT) {
   return Promise.race([
     fetch(url, options),
@@ -23,10 +22,10 @@ async function fetchTimeout(url, options = {}, timeout = TIMEOUT) {
   ]);
 }
 
+// Сбор всех новостей
 async function getAllCryptoNews() {
   let news = [];
   const seen = new Set();
-
   try {
     const url = `https://cryptopanic.com/api/v1/posts/?auth_token=${process.env.CRYPTOPANIC_API_KEY}&public=true&currencies=BTC,ETH,TON,SOL,BNB`;
     const res = await fetchTimeout(url);
@@ -147,6 +146,8 @@ async function getAllCryptoNews() {
     .slice(0, 12);
 }
 
+// --- API endpoints ---
+
 app.get('/api/news', async (req, res) => {
   try {
     const news = await getAllCryptoNews();
@@ -216,6 +217,7 @@ app.get('/api/binance', async (req, res) => {
   }
 });
 
+// TradingView уровни (сайт)
 app.get('/api/tview', async (req, res) => {
   try {
     const symbol = (req.query.symbol || 'BTC').toUpperCase();
@@ -229,6 +231,7 @@ app.get('/api/tview', async (req, res) => {
   }
 });
 
+// OpenAI GPT-4o (универсальный)
 app.post('/api/openai', async (req, res) => {
   try {
     const apiKey = process.env.OPENAI_API_KEY;
@@ -245,14 +248,18 @@ app.post('/api/openai', async (req, res) => {
     }, 30000);
     const js = await r.json();
     if (js.error && js.error.message) {
+      // Важно: Печать ошибки в консоль Heroku!
+      console.error('OpenAI error:', js.error.message);
       return res.status(500).json({ error: js.error.message });
     }
     res.json(js);
   } catch (e) {
+    console.error('OpenAI error:', e && e.message);
     res.status(500).json({ error: (e && e.message) || 'OpenAI error' });
   }
 });
 
+// PWA fallback
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
