@@ -5,7 +5,6 @@ const Parser = require('rss-parser');
 const path = require('path');
 const app = express();
 const parser = new Parser();
-const BINANCE_PUBLIC_KEY = process.env.BINANCE_API_KEY || '';
 
 app.use(express.json({ limit: '1mb' }));
 app.use(express.static(path.join(__dirname, '..', 'public')));
@@ -19,7 +18,7 @@ async function fetchTimeout(url, options = {}, timeout = 13000) {
   ]);
 }
 
-// ФУНКЦИЯ: Получить цену криптовалюты из Binance/CoinGecko/CoinMarketCap/AlphaVantage/Finnhub
+// === Получить цену криптовалюты из разных источников ===
 async function getPriceAll(symbol) {
   symbol = (symbol || 'BTC').toUpperCase().replace(/[^A-Z]/g, '');
   let res = {};
@@ -53,7 +52,7 @@ async function getPriceAll(symbol) {
       if (js["Realtime Currency Exchange Rate"]) res.alpha = +js["Realtime Currency Exchange Rate"]["5. Exchange Rate"];
     }
   } catch {}
-  // Finnhub (тоже free, для акций, но есть BTC/USD)
+  // Finnhub (для акций, но есть BTC/USD)
   try {
     if (process.env.FINNHUB_API_KEY) {
       let r = await fetchTimeout(`https://finnhub.io/api/v1/quote?symbol=BINANCE:${symbol}USDT&token=${process.env.FINNHUB_API_KEY}`);
@@ -85,21 +84,20 @@ app.get('/api/orderbook', async (req, res) => {
   }
 });
 
-// Индикаторы TradingView (через snapshot + TradingView open API)
+// Индикаторы TradingView (snapshot)
 app.get('/api/tvindicators', async (req, res) => {
   try {
     let symbol = (req.query.symbol || 'BTC').toUpperCase() + 'USD';
     // Snapshot TradingView (unofficial)
     const r = await fetchTimeout(`https://scanner.tradingview.com/crypto/scan`);
     const data = await r.json();
-    // Альтернатива: https://api.tradingview.com/v1/symbols/BTCUSD/technicals (если появится)
     res.json(data);
   } catch {
     res.json({});
   }
 });
 
-// STOCKS + ETF (Yahoo Finance + Finnhub + AlphaVantage + Yahoo API)
+// STOCKS + ETF (Yahoo Finance + Finnhub + AlphaVantage)
 app.get('/api/stock', async (req, res) => {
   let symbol = (req.query.symbol || 'AAPL').toUpperCase();
   let out = {};
@@ -128,7 +126,7 @@ app.get('/api/stock', async (req, res) => {
   res.json({ symbol, ...out });
 });
 
-// ===== МАССИВ БЕСПЛАТНЫХ NEWS FEEDS по КРИПТО + STOCKS =====
+// ===== КРИПТО НОВОСТИ =====
 app.get('/api/news', async (req, res) => {
   let news = [];
   const seen = new Set();
@@ -154,7 +152,7 @@ app.get('/api/news', async (req, res) => {
     }
   } catch {}
 
-  // GNews (лучший бесплатный)
+  // GNews
   try {
     if (process.env.GNEWS_API_KEY) {
       const url = `https://gnews.io/api/v4/top-headlines?category=business&q=crypto&token=${process.env.GNEWS_API_KEY}&lang=en&max=10`;
@@ -215,7 +213,7 @@ app.get('/api/news', async (req, res) => {
     }
   } catch {}
 
-  // Все RSS — Cointelegraph, CoinDesk, Forklog, The Block, BitcoinMagazine, Investing, CryptoNews, CryptoSlate, Decrypt
+  // Все RSS
   const feeds = [
     { url: 'https://cointelegraph.com/rss', src: 'Cointelegraph' },
     { url: 'https://www.coindesk.com/arc/outboundfeeds/rss/', src: 'CoinDesk' },
@@ -245,12 +243,12 @@ app.get('/api/news', async (req, res) => {
     } catch {}
   }
 
-  // Оставляем свежие и уникальные
+  // Только свежие и уникальные
   news = news.sort((a, b) => new Date(b.time) - new Date(a.time)).slice(0, 18);
   res.json({ articles: news });
 });
 
-// OpenAI endpoint (roles fix)
+// ===== OpenAI endpoint =====
 app.post('/api/openai', async (req, res) => {
   try {
     if (Array.isArray(req.body.messages)) {
@@ -273,7 +271,7 @@ app.post('/api/openai', async (req, res) => {
   }
 });
 
-// Фоллбэк для PWA
+// ======= PWA fallback (SPA) =======
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
