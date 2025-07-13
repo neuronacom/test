@@ -6,87 +6,102 @@
   <title>NEURONA Trade AI</title>
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#fff">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <meta name="apple-mobile-web-app-title" content="NEURONA Trade AI">
   <link rel="icon" type="image/png" href="https://i.ibb.co/XfKRzvcy/27.png">
   <style>
-    html,body{height:100%;width:100vw;margin:0;padding:0;overflow:hidden;background:#fff;font-family:Arial,sans-serif;}
-    body{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;height:100vh;}
-    .logo-row{display:flex;align-items:center;gap:12px;margin-top:22px;}
-    .logo-row img{width:42px;height:42px;}
-    .logo-row .ttl{font-size:2.1rem;font-weight:800;letter-spacing:1.2px;}
-    .main-wrap{width:100vw;max-width:450px;flex:1;display:flex;flex-direction:column;justify-content:flex-start;align-items:center;}
-    .newsbox, .signalbox{
-      border-radius:22px;margin:0 auto 18px auto;
-      width:92vw;max-width:450px;box-shadow:0 3px 16px 0 #5eb1ff13;
-      padding:14px 16px;box-sizing:border-box;
-      background:#f8fbff;
-      min-height:70px;max-height:37vh;overflow:auto;
+    html,body{height:100%;margin:0;padding:0;background:#fff;font-family:Arial,sans-serif;overflow:hidden;}
+    body{display:flex;flex-direction:column;align-items:center;min-height:100vh;}
+    .logo-row{display:flex;flex-direction:column;align-items:center;justify-content:center;margin-top:19px;}
+    .logo-row img{width:34px;height:34px;}
+    .logo-row .ttl{
+      font-size:1.28rem;font-weight:700;letter-spacing:1.3px;margin-top:3px;
+      color:#222;line-height:1.1;}
+    .logo-row .sub{
+      font-size:1.05rem;color:#888;font-weight:500;margin-top:2px;letter-spacing:0.3px;}
+    .main-wrap{width:98vw;max-width:370px;flex:1;display:flex;flex-direction:column;align-items:center;}
+    .newsbox,.signalbox{
+      border-radius:20px;
+      box-shadow:0 2px 12px 0 #5eb1ff14;
+      padding:11px 12px;box-sizing:border-box;
+      background:#f9fbff;display:flex;flex-direction:column;
       font-size:1.07rem;font-family:Arial,sans-serif;
+      margin:0 auto 12px auto;overflow-y:auto;
+      transition:.18s;
     }
-    .newsbox{background:#f0f8ff;border:2px solid #c5e4ff;}
-    .signalbox{background:#f7f7fb;border:2px solid #e2e2f3;}
-    .newsitem{margin-bottom:13px;}
-    .newsitem:last-child{margin-bottom:0;}
-    .news-title{font-weight:700;color:#1976d2;}
-    .news-link{color:#38a7ff;font-size:1rem;text-decoration:underline;}
-    .news-time{color:#789;opacity:0.9;font-size:0.97em;margin-left:8px;}
+    .newsbox{
+      border:2px solid #d2ecff;
+      background:#f3f8ff;
+      min-height:60px;max-height:120px; /* меньше по высоте! */
+      width:92vw;max-width:340px;
+    }
+    .signalbox{
+      border:2px solid #e2e2f3;
+      background:#f7f7fb;
+      min-height:120px;max-height:240px; /* длиннее */
+      width:92vw;max-width:340px;
+    }
+    .newsitem{margin-bottom:9px;}
+    .news-title{font-weight:600;color:#1679c9;font-size:1.01em;}
+    .news-link{color:#35a7ff;text-decoration:underline;}
+    .news-time{color:#789;font-size:0.97em;margin-left:8px;}
+    .signal-history{overflow-y:auto;max-height:100%;display:flex;flex-direction:column;}
+    .signal-item{margin-bottom:12px;}
     .signal-title{font-weight:700;font-size:1.08em;margin-bottom:3px;}
+    .signal-time{color:#999;font-size:0.98em;margin-left:6px;}
     .signal-long{color:#22ba36;}
     .signal-short{color:#d80e0e;}
-    .reason{font-size:0.98em;color:#444;margin-top:2px;}
+    .dots{display:inline-block;width:26px;}
+    .dot{display:inline-block;width:6px;height:6px;margin:0 1px;border-radius:50%;background:#bbb;opacity:.5;animation:blink 1.2s infinite;}
+    .dot:nth-child(2){animation-delay:0.2s;}
+    .dot:nth-child(3){animation-delay:0.4s;}
+    @keyframes blink{0%,80%,100%{opacity:.5;}40%{opacity:1;}}
     .reload-btn{
-      position:absolute;top:23px;right:24px;z-index:2;
+      position:fixed;top:18px;right:20px;z-index:2;
       background:none;border:none;outline:none;cursor:pointer;
-      font-size:1.65rem;color:#1976d2;transition:.15s;}
-    @media (max-width:480px){
-      .main-wrap{max-width:100vw;}
-      .newsbox,.signalbox{width:98vw;max-width:99vw;}
+      font-size:1.45rem;color:#1976d2;transition:.15s;}
+    @media (max-width:450px){
+      .main-wrap{max-width:99vw;}
+      .newsbox,.signalbox{width:97vw;max-width:99vw;}
     }
   </style>
 </head>
 <body>
   <div class="logo-row">
     <img src="https://i.ibb.co/XfKRzvcy/27.png" alt="NEURONA"/>
-    <span class="ttl">NEURONA Trade AI</span>
+    <span class="ttl">NEURONA</span>
+    <span class="sub">Trade AI Bot</span>
     <button class="reload-btn" title="Обновить" onclick="reloadAll()">&#8635;</button>
   </div>
   <div class="main-wrap">
     <div class="newsbox" id="newsbox">Загрузка новостей...</div>
-    <div class="signalbox" id="signalbox">Получаем анализ рынка...</div>
+    <div class="signalbox" id="signalbox"><div class="dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div></div>
   </div>
   <script>
-    // --- PWA install ---
+    // -- PWA install --
     if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
 
-    // Функция для обновления новостей
+    // Храни историю новостей и сигналов
+    let newsHistory = [];
+    let signalHistory = [];
+
+    // Подгружаем новости: новые внизу, старые не исчезают, только пополняются
     async function loadNews() {
       const box = document.getElementById("newsbox");
-      box.innerHTML = "Загрузка новостей...";
       try {
         let r = await fetch("/api/news");
         let news = await r.json();
         if (!Array.isArray(news)) news = [];
-        // Авто-перевод новостей (title) через openai api — вызываем сервер
-        let translated = [];
-        for (let n of news) {
-          let title = n.title;
-          let url = n.link;
-          // Делаем перевод через сервер openai
-          let data = await fetch("/api/ai_comment", {
-            method: "POST", headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({prompt: `Переведи новость на русский в стиле криптоаналитика: "${title}"`})
-          });
-          let json = await data.json();
-          translated.push({ru:json.msg, url:url, time:n.published});
-        }
-        box.innerHTML = translated.map(n=>`
+        // Добавим новые только если их не было
+        news.forEach(n=>{
+          if(!newsHistory.some(h=>h.link===n.link)){
+            newsHistory.push(n);
+          }
+        });
+        // Показываем всю ленту: новые внизу!
+        box.innerHTML = newsHistory.map(n=>`
           <div class="newsitem">
-            <span class="news-title">${n.ru}</span>
-            <a class="news-link" href="${n.url}" target="_blank">Источник</a>
-            <span class="news-time">${(n.time||"").slice(0,16).replace('T',' ')}</span>
+            <span class="news-title">${n.title}</span>
+            <a class="news-link" href="${n.link}" target="_blank" rel="noopener">Источник</a>
+            <span class="news-time">${(n.published||"").slice(0,16).replace('T',' ')}</span>
           </div>
         `).join('');
       } catch(e) {
@@ -94,43 +109,58 @@
       }
     }
 
-    // Функция для получения и вывода сигнала и комментария
+    // --- Сигналы и анализ. История всегда хранится, новые внизу
     async function loadSignal() {
       const box = document.getElementById("signalbox");
-      box.innerHTML = "Анализируем рынок...";
+      // Анимация "думает"
+      box.innerHTML = '<div style="display:flex;align-items:center;">'
+        +'<span class="dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span></span>'
+        +'<span style="color:#aaa;font-size:1em;margin-left:10px;">AI анализирует рынок...</span></div>';
       try {
-        // Сначала загружаем market данные
-        let r = await fetch("/api/market");
-        let m = await r.json();
-        let prompt = `
-Актуальные данные по рынку BTC и топ монет:
-BTC/USDT: ${m.binance['price']||'-'}
-24h изм: ${m.binance_24hr['priceChangePercent']||'-'}%
-Страх и жадность: ${m.fng && m.fng.data ? m.fng.data[0].value_classification : '-'}
-Сделай краткий анализ BTC и топ-2 монет, после чего жди. Если есть явный вход (100%), выдай сигнал LONG/SHORT с точкой входа, тейк-профит, стоп-лосс и таймфреймом.
-        `.replace(/\n +/g,'\n');
+        let m = await fetch("/api/market");
+        let market = await m.json();
+        // Составляем prompt для AI
+        let prompt = "Дай подробный и точный анализ рынка по топ-5 монетам: BTC, ETH, BNB, SOL, DOGE. Текущие цены (USD): ";
+        for(const [k,v] of Object.entries(market.binance||{})){
+          let sym = k.replace('USDT','');
+          prompt += `${sym}: ${v.price}; `;
+        }
+        prompt += " + Изменения за сутки (CoinGecko): ";
+        for(const [k,v] of Object.entries(market.coingecko||{})){
+          prompt += `${k.toUpperCase()}: ${v.usd} (${v.usd_24h_change && v.usd_24h_change.toFixed ? v.usd_24h_change.toFixed(2) : v.usd_24h_change}%); `;
+        }
+        prompt += "Проверь всё ещё раз, укажи сильные уровни и сигналы, приводи только точные значения и причины.";
         let data = await fetch("/api/ai_comment",{
           method:"POST",headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({prompt:prompt})
+          body:JSON.stringify({prompt})
         });
         let json = await data.json();
-        box.innerHTML = `<div class="signal-title">${json.msg.replace(/\n/g,'<br>')}</div>`;
+        // Сохраняем в историю
+        signalHistory.push({msg:json.msg, time:json.time});
+        // Рендерим всю историю (лента вниз)
+        box.innerHTML = '<div class="signal-history">'
+          + signalHistory.map(s=>`
+            <div class="signal-item">
+              <div class="signal-title">${s.msg.replace(/\n/g,'<br>')}</div>
+              <span class="signal-time">${s.time||''}</span>
+            </div>
+          `).join('')
+        + '</div>';
       } catch(e) {
-        box.innerHTML = "Ошибка получения сигнала";
+        box.innerHTML = "Ошибка AI анализа";
       }
     }
 
-    function reloadAll(){ loadNews(); loadSignal(); }
-    // Авто-обновление каждые 2 мин
-    setInterval(loadNews, 120*1000);
-    setInterval(loadSignal, 70*1000);
-    loadNews(); loadSignal();
-
-    // PUSH-уведомления
-    if ('Notification' in window && navigator.serviceWorker) {
-      Notification.requestPermission();
-      // (Тут можно интегрировать свой пуш-сервер — код уведомлений реализуется через push API, на Heroku нужен сервер для рассылки)
+    function reloadAll(){
+      loadNews();
+      loadSignal();
     }
+
+    // -- Регулярное обновление (новости — каждые 60 сек, сигналы — 2 минуты)
+    setInterval(loadNews, 60*1000);
+    setInterval(loadSignal, 120*1000);
+    loadNews();
+    loadSignal();
   </script>
 </body>
 </html>
