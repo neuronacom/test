@@ -1,10 +1,10 @@
 import os
 import requests
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 import openai
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder="static", static_url_path="/")
 CORS(app)
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
@@ -87,13 +87,29 @@ def ai_comment():
     try:
         resp = openai.chat.completions.create(
             model="gpt-4o",
-            messages=[{"role":"system","content":"Ты эксперт по крипте и рынкам, пиши лаконично, строго по делу, обязательно давай точный сигнал (LONG/SHORT), указывай стоп-лосс, тейк-профит, точку входа, причину, таймфрейм. Пиши на русском."},
-                      {"role":"user","content": prompt}]
+            messages=[
+                {"role": "system", "content": "Ты эксперт по крипте и рынкам, пиши лаконично, строго по делу, обязательно давай точный сигнал (LONG/SHORT), указывай стоп-лосс, тейк-профит, точку входа, причину, таймфрейм. Пиши на русском."},
+                {"role": "user", "content": prompt}
+            ]
         )
         ans = resp.choices[0].message.content
-        return jsonify({"ok":True, "msg":ans})
+        return jsonify({"ok": True, "msg": ans})
     except Exception as e:
-        return jsonify({"ok":False, "msg":str(e)})
+        return jsonify({"ok": False, "msg": str(e)})
+
+# КОРНЕВОЙ РОУТ: отдаём index.html из /static
+@app.route("/")
+def index():
+    return send_from_directory(app.static_folder, "index.html")
+
+# PWA файлы для корректной работы
+@app.route("/manifest.json")
+def manifest():
+    return send_from_directory(app.static_folder, "manifest.json")
+
+@app.route("/sw.js")
+def sw():
+    return send_from_directory(app.static_folder, "sw.js")
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
