@@ -14,7 +14,6 @@
   <link rel="icon" type="image/png" href="https://i.ibb.co/XfKRzvcy/27.png">
   <link rel="preload" as="image" href="https://i.ibb.co/Mk4WpHL9/25-1.png">
   <style>
-    /* === Стили - Весь твой CSS полностью === */
     * { box-sizing:border-box; margin:0; padding:0; }
     body, textarea, button, .msg-content { font-family: Arial, 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', 'Noto Emoji', sans-serif; }
     html, body { width:100vw; height:100vh; min-height:100vh; min-width:100vw; background:#fff; color:#000; -webkit-font-smoothing:antialiased; -webkit-text-size-adjust:none; overflow:hidden; }
@@ -202,9 +201,6 @@ body.dark .message, body.dark .message.user {
   transition: background 0.18s, color 0.18s, border 0.18s;
 }
 body.dark .message.user { background: #28282c; color: #eaeaea; }
-/* ... side-menu, настройки, переключатели, иконки, лэйблы ... */
-/* ... стили для .side-menu-bg, .side-menu, .side-menu-item, .side-arrow, .settings-group, .switch, .switch-inner, .switch-icon, .side-close-btn ... */
-/* ... стили для языков, .side-langs, .side-lang-item, .side-lang-arrow ... */
 .notif-popup {
   position:fixed;
   left:50%; top:19%;
@@ -343,7 +339,6 @@ body.dark .message.user { background: #28282c; color: #eaeaea; }
   .chat-container{min-height:60px;}
   #messages{min-height:35px;}
 }
-    /* Trade режим — два окна, разделение, голубой текст для новостей */
     .trade-ui-wrapper {
       width: 100%; height:100%; display: flex; flex-direction: column; gap:12px;
     }
@@ -613,6 +608,7 @@ body.dark .side-lang-item.active, body.dark .side-lang-item:active {
   </style>
 </head>
 <body>
+<body>
 <canvas id="bg"></canvas>
 <div class="top-bar" id="top-bar">
   <div class="top-bar-content" id="topVerSelect">
@@ -694,17 +690,12 @@ body.dark .side-lang-item.active, body.dark .side-lang-item:active {
   </div>
 </div>
 
+<!-- FIX: только ОДИН notif-popup (в HTML!) -->
 <div class="notif-popup" id="notifPopup">
   <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><circle cx="12" cy="12" r="11" fill="#11c311"/><path d="M7 12.5l2.5 2.5 7-7" stroke="#fff" stroke-width="2.4" fill="none"/></svg>
   <span id="notifPopupText">Уведомления включены!</span>
 </div>
-<script>
-<div class="notif-popup" id="notifPopup">
-  <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><circle cx="12" cy="12" r="11" fill="#11c311"/><path d="M7 12.5l2.5 2.5 7-7" stroke="#fff" stroke-width="2.4" fill="none"/></svg>
-  <span id="notifPopupText">Уведомления включены!</span>
-</div>
-<script src="neurona-chat.js"></script>
-<script>
+
 // ==== Фоновая анимация (нейросеть) ====
 const canvas = document.getElementById('bg'), ctx = canvas.getContext('2d');
 let W, H, nodes;
@@ -1678,9 +1669,6 @@ window.addEventListener('DOMContentLoaded', ()=>{
   switchVersionUI(curVer);
   if(curVer==='trade') setTimeout(greetTradeBot, 1800);
 });
-
-/* --- Остальной твой JS полностью как был (весь чат, sideMenu, сохранение истории, etc) --- */
-// ...
 </script>
 <script src="neurona-chat.js"></script>
 <script>
