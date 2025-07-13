@@ -5,8 +5,6 @@ const path = require('path');
 const app = express();
 
 const TIMEOUT = 12000;
-
-// Для Cointelegraph/Coindesk RSS
 const Parser = require('rss-parser');
 const parser = new Parser();
 
@@ -22,6 +20,7 @@ async function fetchTimeout(url, options = {}, timeout = TIMEOUT) {
   ]);
 }
 
+// Получение всех крипто-новостей (до 12 свежих)
 async function getAllCryptoNews() {
   let news = [];
   const seen = new Set();
@@ -44,29 +43,45 @@ async function getAllCryptoNews() {
         });
       }
     });
-  } catch {}
+  } catch (e) { /* log error if needed */ }
 
-  // 2. GNews
+  // 2. Cointelegraph RSS
   try {
-    const url = `https://gnews.io/api/v4/search?q=crypto&token=${process.env.GNEWS_API_KEY}&lang=en&max=7`;
-    const res = await fetchTimeout(url);
-    const js = await res.json();
-    (js.articles || []).forEach(a => {
-      const key = (a.title || '') + (a.url || '');
+    const feed = await parser.parseURL('https://cointelegraph.com/rss');
+    (feed.items || []).forEach(a => {
+      const key = (a.title || '') + (a.link || '');
       if (!seen.has(key)) {
         seen.add(key);
         news.push({
           title: a.title,
-          url: a.url,
-          time: a.publishedAt,
-          source: a.source?.name || 'gnews',
+          url: a.link,
+          time: a.pubDate,
+          source: 'Cointelegraph',
           impact: ''
         });
       }
     });
   } catch {}
 
-  // 3. CryptoCompare News (EN)
+  // 3. CoinDesk RSS
+  try {
+    const feed = await parser.parseURL('https://www.coindesk.com/arc/outboundfeeds/rss/');
+    (feed.items || []).forEach(a => {
+      const key = (a.title || '') + (a.link || '');
+      if (!seen.has(key)) {
+        seen.add(key);
+        news.push({
+          title: a.title,
+          url: a.link,
+          time: a.pubDate,
+          source: 'CoinDesk',
+          impact: ''
+        });
+      }
+    });
+  } catch {}
+
+  // 4. CryptoCompare News (EN)
   try {
     const url = 'https://min-api.cryptocompare.com/data/v2/news/?lang=EN';
     const res = await fetchTimeout(url);
@@ -86,63 +101,29 @@ async function getAllCryptoNews() {
     });
   } catch {}
 
-  // 4. Cointelegraph RSS
+  // 5. GNews (по ключу в .env, если есть)
   try {
-    const feed = await parser.parseURL('https://cointelegraph.com/rss');
-    (feed.items || []).forEach(a => {
-      const key = (a.title || '') + (a.link || '');
-      if (!seen.has(key)) {
-        seen.add(key);
-        news.push({
-          title: a.title,
-          url: a.link,
-          time: a.pubDate,
-          source: 'Cointelegraph',
-          impact: ''
-        });
-      }
-    });
+    if (process.env.GNEWS_API_KEY) {
+      const url = `https://gnews.io/api/v4/search?q=crypto&token=${process.env.GNEWS_API_KEY}&lang=en&max=7`;
+      const res = await fetchTimeout(url);
+      const js = await res.json();
+      (js.articles || []).forEach(a => {
+        const key = (a.title || '') + (a.url || '');
+        if (!seen.has(key)) {
+          seen.add(key);
+          news.push({
+            title: a.title,
+            url: a.url,
+            time: a.publishedAt,
+            source: a.source?.name || 'gnews',
+            impact: ''
+          });
+        }
+      });
+    }
   } catch {}
 
-  // 5. CoinDesk RSS
-  try {
-    const feed = await parser.parseURL('https://www.coindesk.com/arc/outboundfeeds/rss/');
-    (feed.items || []).forEach(a => {
-      const key = (a.title || '') + (a.link || '');
-      if (!seen.has(key)) {
-        seen.add(key);
-        news.push({
-          title: a.title,
-          url: a.link,
-          time: a.pubDate,
-          source: 'CoinDesk',
-          impact: ''
-        });
-      }
-    });
-  } catch {}
-
-  // 6. Investing.com (через Cryptopanic)
-  try {
-    const url = 'https://cryptopanic.com/api/v1/posts/?auth_token=' + process.env.CRYPTOPANIC_API_KEY + '&public=true&currencies=BTC,ETH,TON,SOL,BNB&kind=news';
-    const res = await fetchTimeout(url);
-    const js = await res.json();
-    (js.results || []).forEach(n => {
-      const key = (n.title || '') + (n.url || '');
-      if (!seen.has(key)) {
-        seen.add(key);
-        news.push({
-          title: n.title,
-          url: n.url,
-          time: n.published_at,
-          source: 'Investing',
-          impact: ''
-        });
-      }
-    });
-  } catch {}
-
-  // Сортировка, свежесть (24ч), максимум 12 новостей
+  // Сортировка и фильтр свежих (24ч), максимум 12 новостей
   const now = Date.now();
   return news
     .filter(a => {
@@ -153,7 +134,7 @@ async function getAllCryptoNews() {
     .slice(0, 12);
 }
 
-// -- API endpoints --
+// --- API endpoints ---
 
 app.get('/api/news', async (req, res) => {
   try {
@@ -164,7 +145,7 @@ app.get('/api/news', async (req, res) => {
   }
 });
 
-// CoinMarketCap API (Топ-5)
+// CoinMarketCap (ТОП-5)
 app.get('/api/cmc', async (req, res) => {
   try {
     const r = await fetchTimeout(
@@ -178,19 +159,24 @@ app.get('/api/cmc', async (req, res) => {
   }
 });
 
-// CoinGecko — любая монета, свежая цена и ссылка
+// CoinGecko (актуальная цена любой монеты)
 app.get('/api/coingecko', async (req, res) => {
   try {
     const query = (req.query.q || '').trim().toLowerCase();
     if (!query) return res.json({ found: false });
+
+    // Попробовать найти по symbol, id, name
     const cg = await fetchTimeout('https://api.coingecko.com/api/v3/coins/list').then(r => r.json());
     let coin = cg.find(c => c.symbol.toLowerCase() === query) ||
       cg.find(c => c.id.toLowerCase() === query) ||
       cg.find(c => c.name.toLowerCase() === query);
     if (!coin) return res.json({ found: false });
+
+    // Текущий курс USD
     const market = await fetchTimeout(
       `https://api.coingecko.com/api/v3/simple/price?ids=${coin.id}&vs_currencies=usd`
     ).then(r => r.json());
+
     res.json({
       found: true,
       name: coin.name,
@@ -198,12 +184,12 @@ app.get('/api/coingecko', async (req, res) => {
       price: market[coin.id]?.usd || '0',
       url: `https://www.coingecko.com/en/coins/${coin.id}`
     });
-  } catch {
+  } catch (e) {
     res.json({ found: false });
   }
 });
 
-// Binance — актуальная цена пары
+// Binance — актуальная цена тикера
 app.get('/api/binance', async (req, res) => {
   try {
     let symbol = (req.query.q || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -221,7 +207,7 @@ app.get('/api/binance', async (req, res) => {
   }
 });
 
-// TradingView support/resistance
+// TradingView: поддержка/сопротивление (опционально, если нужно)
 app.get('/api/tview', async (req, res) => {
   try {
     const symbol = (req.query.symbol || 'BTC').toUpperCase();
