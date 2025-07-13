@@ -3,7 +3,6 @@ const urlsToCache = [
   '/',
   '/index.html',
   '/manifest.json',
-  '/neurona-chat.js'
 ];
 self.addEventListener('install', function(event) {
   event.waitUntil(
