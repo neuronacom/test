@@ -28,18 +28,19 @@ self.addEventListener('activate', event => {
 self.addEventListener('push', function(event) {
   let data = {};
   try { data = event.data.json(); } catch {}
+  // language-aware notification
   const title = data.title || "NEURONA AI Signal";
   const options = {
     body: data.body || "Новое событие на рынке крипты!",
     icon: "https://i.ibb.co/XfKRzvcy/27.png",
     badge: "https://i.ibb.co/XfKRzvcy/27.png",
-    data: data.url || "/"
+    // не отправляем data.url, только текст
   };
   event.waitUntil(self.registration.showNotification(title, options));
 });
 self.addEventListener('notificationclick', function(event) {
   event.notification.close();
   event.waitUntil(
-    clients.openWindow(event.notification.data)
+    clients.openWindow('/') // Всегда главная страница
   );
 });
