@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
+  <title>NEURONA Trade AI</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#fff">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="NEURONA Trade AI">
+  <link rel="icon" type="image/png" href="https://i.ibb.co/XfKRzvcy/27.png">
+  <style>
+    html,body{height:100%;width:100vw;margin:0;padding:0;overflow:hidden;background:#fff;font-family:Arial,sans-serif;}
+    body{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;height:100vh;}
+    .logo-row{display:flex;align-items:center;gap:12px;margin-top:22px;}
+    .logo-row img{width:42px;height:42px;}
+    .logo-row .ttl{font-size:2.1rem;font-weight:800;letter-spacing:1.2px;}
+    .main-wrap{width:100vw;max-width:450px;flex:1;display:flex;flex-direction:column;justify-content:flex-start;align-items:center;}
+    .newsbox, .signalbox{
+      border-radius:22px;margin:0 auto 18px auto;
+      width:92vw;max-width:450px;box-shadow:0 3px 16px 0 #5eb1ff13;
+      padding:14px 16px;box-sizing:border-box;
+      background:#f8fbff;
+      min-height:70px;max-height:37vh;overflow:auto;
+      font-size:1.07rem;font-family:Arial,sans-serif;
+    }
+    .newsbox{background:#f0f8ff;border:2px solid #c5e4ff;}
+    .signalbox{background:#f7f7fb;border:2px solid #e2e2f3;}
+    .newsitem{margin-bottom:13px;}
+    .newsitem:last-child{margin-bottom:0;}
+    .news-title{font-weight:700;color:#1976d2;}
+    .news-link{color:#38a7ff;font-size:1rem;text-decoration:underline;}
+    .news-time{color:#789;opacity:0.9;font-size:0.97em;margin-left:8px;}
+    .signal-title{font-weight:700;font-size:1.08em;margin-bottom:3px;}
+    .signal-long{color:#22ba36;}
+    .signal-short{color:#d80e0e;}
+    .reason{font-size:0.98em;color:#444;margin-top:2px;}
+    .reload-btn{
+      position:absolute;top:23px;right:24px;z-index:2;
+      background:none;border:none;outline:none;cursor:pointer;
+      font-size:1.65rem;color:#1976d2;transition:.15s;}
+    @media (max-width:480px){
+      .main-wrap{max-width:100vw;}
+      .newsbox,.signalbox{width:98vw;max-width:99vw;}
+    }
+  </style>
+</head>
+<body>
+  <div class="logo-row">
+    <img src="https://i.ibb.co/XfKRzvcy/27.png" alt="NEURONA"/>
+    <span class="ttl">NEURONA Trade AI</span>
+    <button class="reload-btn" title="Обновить" onclick="reloadAll()">&#8635;</button>
+  </div>
+  <div class="main-wrap">
+    <div class="newsbox" id="newsbox">Загрузка новостей...</div>
+    <div class="signalbox" id="signalbox">Получаем анализ рынка...</div>
+  </div>
+  <script>
+    // --- PWA install ---
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+
+    // Функция для обновления новостей
+    async function loadNews() {
+      const box = document.getElementById("newsbox");
+      box.innerHTML = "Загрузка новостей...";
+      try {
+        let r = await fetch("/api/news");
+        let news = await r.json();
+        if (!Array.isArray(news)) news = [];
+        // Авто-перевод новостей (title) через openai api — вызываем сервер
+        let translated = [];
+        for (let n of news) {
+          let title = n.title;
+          let url = n.link;
+          // Делаем перевод через сервер openai
+          let data = await fetch("/api/ai_comment", {
+            method: "POST", headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({prompt: `Переведи новость на русский в стиле криптоаналитика: "${title}"`})
+          });
+          let json = await data.json();
+          translated.push({ru:json.msg, url:url, time:n.published});
+        }
+        box.innerHTML = translated.map(n=>`
+          <div class="newsitem">
+            <span class="news-title">${n.ru}</span>
+            <a class="news-link" href="${n.url}" target="_blank">Источник</a>
+            <span class="news-time">${(n.time||"").slice(0,16).replace('T',' ')}</span>
+          </div>
+        `).join('');
+      } catch(e) {
+        box.innerHTML = "Ошибка загрузки новостей";
+      }
+    }
+
+    // Функция для получения и вывода сигнала и комментария
+    async function loadSignal() {
+      const box = document.getElementById("signalbox");
+      box.innerHTML = "Анализируем рынок...";
+      try {
+        // Сначала загружаем market данные
+        let r = await fetch("/api/market");
+        let m = await r.json();
+        let prompt = `
+Актуальные данные по рынку BTC и топ монет:
+BTC/USDT: ${m.binance['price']||'-'}
+24h изм: ${m.binance_24hr['priceChangePercent']||'-'}%
+Страх и жадность: ${m.fng && m.fng.data ? m.fng.data[0].value_classification : '-'}
+Сделай краткий анализ BTC и топ-2 монет, после чего жди. Если есть явный вход (100%), выдай сигнал LONG/SHORT с точкой входа, тейк-профит, стоп-лосс и таймфреймом.
+        `.replace(/\n +/g,'\n');
+        let data = await fetch("/api/ai_comment",{
+          method:"POST",headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({prompt:prompt})
+        });
+        let json = await data.json();
+        box.innerHTML = `<div class="signal-title">${json.msg.replace(/\n/g,'<br>')}</div>`;
+      } catch(e) {
+        box.innerHTML = "Ошибка получения сигнала";
+      }
+    }
+
+    function reloadAll(){ loadNews(); loadSignal(); }
+    // Авто-обновление каждые 2 мин
+    setInterval(loadNews, 120*1000);
+    setInterval(loadSignal, 70*1000);
+    loadNews(); loadSignal();
+
+    // PUSH-уведомления
+    if ('Notification' in window && navigator.serviceWorker) {
+      Notification.requestPermission();
+      // (Тут можно интегрировать свой пуш-сервер — код уведомлений реализуется через push API, на Heroku нужен сервер для рассылки)
+    }
+  </script>
+</body>
+</html>
