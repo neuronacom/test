@@ -5,12 +5,12 @@ const Parser = require('rss-parser');
 const path = require('path');
 const app = express();
 const parser = new Parser();
-const BINANCE_PUBLIC_KEY = process.env.BINANCE_API_KEY || ''; // Можно использовать публичный (смотри ниже)
+const BINANCE_PUBLIC_KEY = process.env.BINANCE_API_KEY || '';
 
 app.use(express.json({ limit: '1mb' }));
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
-async function fetchTimeout(url, options = {}, timeout = 15000) {
+async function fetchTimeout(url, options = {}, timeout = 13000) {
   return Promise.race([
     fetch(url, options),
     new Promise((_, reject) =>
@@ -19,23 +19,65 @@ async function fetchTimeout(url, options = {}, timeout = 15000) {
   ]);
 }
 
-// Получаем цену BTC с Binance (реального времени!)
+// ФУНКЦИЯ: Получить цену криптовалюты из Binance/CoinGecko/CoinMarketCap/AlphaVantage/Finnhub
+async function getPriceAll(symbol) {
+  symbol = (symbol || 'BTC').toUpperCase().replace(/[^A-Z]/g, '');
+  let res = {};
+  // Binance
+  try {
+    let r = await fetchTimeout(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}USDT`);
+    let js = await r.json();
+    if (js.price) res.binance = parseFloat(js.price);
+  } catch {}
+  // CoinGecko
+  try {
+    let cg = await fetchTimeout(`https://api.coingecko.com/api/v3/simple/price?ids=${symbol.toLowerCase()}&vs_currencies=usd`);
+    let js = await cg.json();
+    if (js && js[symbol.toLowerCase()]) res.coingecko = js[symbol.toLowerCase()].usd;
+  } catch {}
+  // CoinMarketCap (если есть ключ)
+  try {
+    if (process.env.CMC_API_KEY) {
+      let r = await fetchTimeout(`https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest?symbol=${symbol}`, {
+        headers: { 'X-CMC_PRO_API_KEY': process.env.CMC_API_KEY }
+      });
+      let js = await r.json();
+      if (js.data && js.data[symbol]) res.cmc = js.data[symbol].quote.USD.price;
+    }
+  } catch {}
+  // AlphaVantage (ключ бесплатный, ограничение по запросам)
+  try {
+    if (process.env.ALPHA_API_KEY) {
+      let r = await fetchTimeout(`https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency=${symbol}&to_currency=USD&apikey=${process.env.ALPHA_API_KEY}`);
+      let js = await r.json();
+      if (js["Realtime Currency Exchange Rate"]) res.alpha = +js["Realtime Currency Exchange Rate"]["5. Exchange Rate"];
+    }
+  } catch {}
+  // Finnhub (тоже free, для акций, но есть BTC/USD)
+  try {
+    if (process.env.FINNHUB_API_KEY) {
+      let r = await fetchTimeout(`https://finnhub.io/api/v1/quote?symbol=BINANCE:${symbol}USDT&token=${process.env.FINNHUB_API_KEY}`);
+      let js = await r.json();
+      if (js.c) res.finnhub = js.c;
+    }
+  } catch {}
+  return res;
+}
+
 app.get('/api/price', async (req, res) => {
   try {
-    let symbol = (req.query.symbol || 'BTC').toUpperCase().replace(/[^A-Z]/g, '') + 'USDT';
-    const r = await fetchTimeout(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`);
-    const js = await r.json();
-    res.json({ found: !!js.price, symbol, price: js.price || null });
-  } catch (e) {
+    let symbol = (req.query.symbol || 'BTC').toUpperCase().replace(/[^A-Z]/g, '');
+    let prices = await getPriceAll(symbol);
+    res.json({ symbol, prices });
+  } catch {
     res.json({ found: false });
   }
 });
 
-// Получаем OrderBook (стакан) с Binance
 app.get('/api/orderbook', async (req, res) => {
   try {
     let symbol = (req.query.symbol || 'BTC').toUpperCase().replace(/[^A-Z]/g, '') + 'USDT';
-    const r = await fetchTimeout(`https://api.binance.com/api/v3/depth?symbol=${symbol}&limit=20`);
+    const r = await fetchTimeout(`https://api.binance.com/api/v3/depth?symbol=${symbol}&limit=40`);
     const js = await r.json();
     res.json(js);
   } catch (e) {
@@ -43,62 +85,97 @@ app.get('/api/orderbook', async (req, res) => {
   }
 });
 
-// Получаем индикаторы с TradingView через public snapshot (simple workaround)
+// Индикаторы TradingView (через snapshot + TradingView open API)
 app.get('/api/tvindicators', async (req, res) => {
   try {
-    // Используем TradingView snapshot API, например через ru.tradingview.com/symbols/BTCUSD/technicals/
-    const resp = await fetch('https://scanner.tradingview.com/crypto/scan');
-    const data = await resp.json();
-    res.json(data); // Просто прокси, детали реализуй в фронте
+    let symbol = (req.query.symbol || 'BTC').toUpperCase() + 'USD';
+    // Snapshot TradingView (unofficial)
+    const r = await fetchTimeout(`https://scanner.tradingview.com/crypto/scan`);
+    const data = await r.json();
+    // Альтернатива: https://api.tradingview.com/v1/symbols/BTCUSD/technicals (если появится)
+    res.json(data);
   } catch {
     res.json({});
   }
 });
 
-// Получаем максимально новости (TOP FREE news API + RSS!)
+// STOCKS + ETF (Yahoo Finance + Finnhub + AlphaVantage + Yahoo API)
+app.get('/api/stock', async (req, res) => {
+  let symbol = (req.query.symbol || 'AAPL').toUpperCase();
+  let out = {};
+  try {
+    let r = await fetchTimeout(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbol}`);
+    let js = await r.json();
+    if (js.quoteResponse && js.quoteResponse.result[0])
+      out.yahoo = js.quoteResponse.result[0];
+  } catch {}
+  try {
+    if (process.env.ALPHA_API_KEY) {
+      let r = await fetchTimeout(`https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${symbol}&apikey=${process.env.ALPHA_API_KEY}`);
+      let js = await r.json();
+      if (js["Global Quote"])
+        out.alpha = js["Global Quote"];
+    }
+  } catch {}
+  try {
+    if (process.env.FINNHUB_API_KEY) {
+      let r = await fetchTimeout(`https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${process.env.FINNHUB_API_KEY}`);
+      let js = await r.json();
+      if (js.c)
+        out.finnhub = js;
+    }
+  } catch {}
+  res.json({ symbol, ...out });
+});
+
+// ===== МАССИВ БЕСПЛАТНЫХ NEWS FEEDS по КРИПТО + STOCKS =====
 app.get('/api/news', async (req, res) => {
   let news = [];
   const seen = new Set();
 
   // Cryptopanic
   try {
-    const url = `https://cryptopanic.com/api/v1/posts/?auth_token=${process.env.CRYPTOPANIC_API_KEY}&public=true&currencies=BTC,ETH`;
-    const r = await fetchTimeout(url);
-    const js = await r.json();
-    (js.results || []).forEach(n => {
-      const key = (n.title || '') + (n.url || '');
-      if (!seen.has(key)) {
-        seen.add(key);
-        news.push({
-          title: n.title,
-          url: n.url,
-          time: n.published_at,
-          source: n.domain || 'cryptopanic'
-        });
-      }
-    });
+    if (process.env.CRYPTOPANIC_API_KEY) {
+      const url = `https://cryptopanic.com/api/v1/posts/?auth_token=${process.env.CRYPTOPANIC_API_KEY}&public=true&currencies=BTC,ETH`;
+      const r = await fetchTimeout(url);
+      const js = await r.json();
+      (js.results || []).forEach(n => {
+        const key = (n.title || '') + (n.url || '');
+        if (!seen.has(key)) {
+          seen.add(key);
+          news.push({
+            title: n.title,
+            url: n.url,
+            time: n.published_at,
+            source: n.domain || 'cryptopanic'
+          });
+        }
+      });
+    }
   } catch {}
 
-  // GNews
+  // GNews (лучший бесплатный)
   try {
-    const url = `https://gnews.io/api/v4/top-headlines?category=business&q=crypto&token=${process.env.GNEWS_API_KEY}&lang=en&max=5`;
-    const r = await fetchTimeout(url);
-    const js = await r.json();
-    (js.articles || []).forEach(a => {
-      const key = (a.title || '') + (a.url || '');
-      if (!seen.has(key)) {
-        seen.add(key);
-        news.push({
-          title: a.title,
-          url: a.url,
-          time: a.publishedAt,
-          source: a.source?.name || 'gnews'
-        });
-      }
-    });
+    if (process.env.GNEWS_API_KEY) {
+      const url = `https://gnews.io/api/v4/top-headlines?category=business&q=crypto&token=${process.env.GNEWS_API_KEY}&lang=en&max=10`;
+      const r = await fetchTimeout(url);
+      const js = await r.json();
+      (js.articles || []).forEach(a => {
+        const key = (a.title || '') + (a.url || '');
+        if (!seen.has(key)) {
+          seen.add(key);
+          news.push({
+            title: a.title,
+            url: a.url,
+            time: a.publishedAt,
+            source: a.source?.name || 'gnews'
+          });
+        }
+      });
+    }
   } catch {}
 
-  // CryptoCompare
+  // CryptoCompare free
   try {
     const url = 'https://min-api.cryptocompare.com/data/v2/news/?lang=EN';
     const r = await fetchTimeout(url);
@@ -117,131 +194,63 @@ app.get('/api/news', async (req, res) => {
     });
   } catch {}
 
-  // Cointelegraph
+  // Stocks/ETF — Yahoo Finance News (на англ, ticker news)
   try {
-    const feed = await parser.parseURL('https://cointelegraph.com/rss');
-    (feed.items || []).forEach(a => {
-      const key = (a.title || '') + (a.link || '');
-      if (!seen.has(key)) {
-        seen.add(key);
-        news.push({
-          title: a.title,
-          url: a.link,
-          time: a.pubDate,
-          source: 'Cointelegraph'
-        });
-      }
-    });
+    let symbol = (req.query.stock || '').toUpperCase();
+    if (symbol) {
+      let r = await fetchTimeout(`https://query1.finance.yahoo.com/v7/finance/news?category=${symbol}`);
+      let js = await r.json();
+      (js.items?.result || []).forEach(a => {
+        const key = (a.title || '') + (a.link || '');
+        if (!seen.has(key)) {
+          seen.add(key);
+          news.push({
+            title: a.title,
+            url: a.link,
+            time: a.pubDate,
+            source: 'Yahoo Finance'
+          });
+        }
+      });
+    }
   } catch {}
 
-  // CoinDesk
-  try {
-    const feed = await parser.parseURL('https://www.coindesk.com/arc/outboundfeeds/rss/');
-    (feed.items || []).forEach(a => {
-      const key = (a.title || '') + (a.link || '');
-      if (!seen.has(key)) {
-        seen.add(key);
-        news.push({
-          title: a.title,
-          url: a.link,
-          time: a.pubDate,
-          source: 'CoinDesk'
-        });
-      }
-    });
-  } catch {}
+  // Все RSS — Cointelegraph, CoinDesk, Forklog, The Block, BitcoinMagazine, Investing, CryptoNews, CryptoSlate, Decrypt
+  const feeds = [
+    { url: 'https://cointelegraph.com/rss', src: 'Cointelegraph' },
+    { url: 'https://www.coindesk.com/arc/outboundfeeds/rss/', src: 'CoinDesk' },
+    { url: 'https://forklog.com/feed', src: 'Forklog' },
+    { url: 'https://www.theblock.co/rss', src: 'The Block' },
+    { url: 'https://bitcoinmagazine.com/.rss/full/', src: 'BitcoinMagazine' },
+    { url: 'https://www.investing.com/rss/news_301.rss', src: 'Investing.com' },
+    { url: 'https://cryptonews.com/news/feed', src: 'CryptoNews' },
+    { url: 'https://cryptoslate.com/feed', src: 'CryptoSlate' },
+    { url: 'https://decrypt.co/feed', src: 'Decrypt' }
+  ];
+  for (let feed of feeds) {
+    try {
+      const f = await parser.parseURL(feed.url);
+      (f.items || []).forEach(a => {
+        const key = (a.title || '') + (a.link || '');
+        if (!seen.has(key)) {
+          seen.add(key);
+          news.push({
+            title: a.title,
+            url: a.link,
+            time: a.pubDate,
+            source: feed.src
+          });
+        }
+      });
+    } catch {}
+  }
 
-  // Forklog
-  try {
-    const feed = await parser.parseURL('https://forklog.com/feed');
-    (feed.items || []).forEach(a => {
-      const key = (a.title || '') + (a.link || '');
-      if (!seen.has(key)) {
-        seen.add(key);
-        news.push({
-          title: a.title,
-          url: a.link,
-          time: a.pubDate,
-          source: 'Forklog'
-        });
-      }
-    });
-  } catch {}
-
-  // The Block
-  try {
-    const feed = await parser.parseURL('https://www.theblock.co/rss');
-    (feed.items || []).forEach(a => {
-      const key = (a.title || '') + (a.link || '');
-      if (!seen.has(key)) {
-        seen.add(key);
-        news.push({
-          title: a.title,
-          url: a.link,
-          time: a.pubDate,
-          source: 'The Block'
-        });
-      }
-    });
-  } catch {}
-
-  // BitcoinMagazine
-  try {
-    const feed = await parser.parseURL('https://bitcoinmagazine.com/.rss/full/');
-    (feed.items || []).forEach(a => {
-      const key = (a.title || '') + (a.link || '');
-      if (!seen.has(key)) {
-        seen.add(key);
-        news.push({
-          title: a.title,
-          url: a.link,
-          time: a.pubDate,
-          source: 'BitcoinMagazine'
-        });
-      }
-    });
-  } catch {}
-
-  // Investing.com (crypto section)
-  try {
-    const feed = await parser.parseURL('https://www.investing.com/rss/news_301.rss');
-    (feed.items || []).forEach(a => {
-      const key = (a.title || '') + (a.link || '');
-      if (!seen.has(key)) {
-        seen.add(key);
-        news.push({
-          title: a.title,
-          url: a.link,
-          time: a.pubDate,
-          source: 'Investing.com'
-        });
-      }
-    });
-  } catch {}
-
-  // CryptoNews.com
-  try {
-    const feed = await parser.parseURL('https://cryptonews.com/news/feed');
-    (feed.items || []).forEach(a => {
-      const key = (a.title || '') + (a.link || '');
-      if (!seen.has(key)) {
-        seen.add(key);
-        news.push({
-          title: a.title,
-          url: a.link,
-          time: a.pubDate,
-          source: 'CryptoNews'
-        });
-      }
-    });
-  } catch {}
-
-  // Только последние 5 новостей (или сколько надо)
-  news = news.sort((a, b) => new Date(b.time) - new Date(a.time)).slice(0, 8);
+  // Оставляем свежие и уникальные
+  news = news.sort((a, b) => new Date(b.time) - new Date(a.time)).slice(0, 18);
   res.json({ articles: news });
 });
 
-// OpenAI (roles fix)
+// OpenAI endpoint (roles fix)
 app.post('/api/openai', async (req, res) => {
   try {
     if (Array.isArray(req.body.messages)) {
