@@ -1527,40 +1527,6 @@ function hideLoaderAfterSwitch(ver){
   setTimeout(()=>{ document.getElementById('loader').style.display='none'; }, 900);
 }
 switchVersionUI(curVer);
-
-// ==== WebPush: Запрос подписки при входе (VAPID public key) ====
-const VAPID_PUBLIC_KEY = 'BNDyclbiljMFk-MptT1JlXnUHfTQwFiNkYkrZ20fIKlQMIJEinnxhBTkJfHzBz_tS4XYtNRTlQ50Zf8MhloUMKs';
-
-async function subscribeToPush() {
-  if ('serviceWorker' in navigator && 'PushManager' in window) {
-    try {
-      const reg = await navigator.serviceWorker.ready;
-      const permission = await Notification.requestPermission();
-      if (permission !== 'granted') return;
-      let sub = await reg.pushManager.getSubscription();
-      if (!sub) {
-        sub = await reg.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
-        });
-      }
-      // Отправка sub на сервер через твой backend
-      await fetch('/api/save-subscription', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify(sub)
-      });
-    } catch(e) {}
-  }
-}
-function urlBase64ToUint8Array(base64String) {
-  const padding = '='.repeat((4 - base64String.length % 4) % 4);
-  const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
-  const rawData = window.atob(base64);
-  return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
-}
-window.addEventListener('load', () => setTimeout(subscribeToPush, 1200));
-
 // ==== Автоматическое разрешение пушей и уведомлений ====
 function requestPushNotifications(){
   if (window.Notification && Notification.permission !== "granted") {
