@@ -3,6 +3,8 @@ import requests
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 import openai
+import feedparser
+from datetime import datetime
 
 app = Flask(__name__, static_folder="static", static_url_path="/")
 CORS(app)
@@ -10,7 +12,6 @@ CORS(app)
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 openai.api_key = OPENAI_API_KEY
 
-# Новости - RSS агрегатор (много лент)
 NEWS_FEEDS = [
     "https://www.coindesk.com/arc/outboundfeeds/rss/",
     "https://cointelegraph.com/rss",
@@ -18,68 +19,65 @@ NEWS_FEEDS = [
     "https://www.investing.com/rss/news_25.rss",
     "https://feeds.finance.yahoo.com/rss/2.0/headline?s=BTC-USD&region=US&lang=en-US",
     "https://bitcoinmagazine.com/.rss/full/",
-    "https://min-api.cryptocompare.com/data/v2/news/?lang=EN",
     "https://cryptoslate.com/feed/",
     "https://www.newsbtc.com/feed/",
     "https://news.bitcoin.com/feed/",
     "https://cryptonews.com/news/feed",
     "https://decrypt.co/feed",
     "https://www.cryptoglobe.com/latest/feed/",
-    "https://ambcrypto.com/feed/",
-    "https://www.investing.com/rss/news_301.rss",
-    "https://nitter.net/whale_alert/rss"
+    "https://ambcrypto.com/feed/"
 ]
 
+TOP5 = "bitcoin,ethereum,bnb,solana,dogecoin"
+
 def parse_rss(url):
-    import feedparser
     feed = feedparser.parse(url)
     news = []
     for entry in feed.entries:
         news.append({
             "title": entry.title,
             "link": entry.link,
-            "published": entry.published if "published" in entry else ""
+            "published": entry.get("published", "")
         })
     return news
 
 @app.route("/api/news")
 def api_news():
-    result = []
+    # Берём только свежие и не дублируем!
+    all_news = []
     for url in NEWS_FEEDS:
         try:
-            for n in parse_rss(url):
-                result.append(n)
-        except Exception:
-            continue
-    # Уникализируем по title+link, сортируем по времени, лимит 20
+            all_news.extend(parse_rss(url))
+        except: pass
     seen = set()
     news_sorted = []
-    for n in sorted(result, key=lambda x: x.get("published",""), reverse=True):
+    # Лента - свежие внизу
+    for n in sorted(all_news, key=lambda x: x.get("published","")):
         k = n["title"]+n["link"]
         if k not in seen:
             seen.add(k)
             news_sorted.append(n)
-        if len(news_sorted) >= 20:
-            break
+        if len(news_sorted) >= 30: break
     return jsonify(news_sorted)
 
-# BTC / Crypto данные - API endpoints
 @app.route("/api/market")
 def api_market():
     res = {}
     try:
-        res["coingecko"] = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd&include_24hr_change=true").json()
-        res["binance"] = requests.get("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT").json()
-        res["binance_24hr"] = requests.get("https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT").json()
-        res["kucoin"] = requests.get("https://api.kucoin.com/api/v1/market/orderbook/level1?symbol=BTC-USDT").json()
-        res["kucoin_candles"] = requests.get("https://api.kucoin.com/api/v1/market/candles?type=1hour&symbol=BTC-USDT").json()
-        res["fng"] = requests.get("https://api.alternative.me/fng/").json()
-        res["coingecko_markets"] = requests.get("https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=bitcoin,ethereum&order=market_cap_desc&per_page=10&page=1&sparkline=false").json()
+        # Только самые свежие цены топ-5 с CoinGecko и Binance
+        res["coingecko"] = requests.get(
+            f"https://api.coingecko.com/api/v3/simple/price?ids={TOP5}&vs_currencies=usd,usdt&include_24hr_change=true"
+        ).json()
+        res["binance"] = {}
+        for symbol in ["BTCUSDT","ETHUSDT","BNBUSDT","SOLUSDT","DOGEUSDT"]:
+            try:
+                r = requests.get(f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}").json()
+                res["binance"][symbol] = r
+            except: pass
     except Exception as e:
         res["error"] = str(e)
     return jsonify(res)
 
-# AI-комментарий и сигнал (по запросу фронта)
 @app.route("/api/ai_comment", methods=["POST"])
 def ai_comment():
     data = request.json
@@ -88,21 +86,26 @@ def ai_comment():
         resp = openai.chat.completions.create(
             model="gpt-4o",
             messages=[
-                {"role": "system", "content": "Ты эксперт по крипте и рынкам, пиши лаконично, строго по делу, обязательно давай точный сигнал (LONG/SHORT), указывай стоп-лосс, тейк-профит, точку входа, причину, таймфрейм. Пиши на русском."},
+                {"role": "system", "content": (
+                    "Ты топовый трейдер по крипторынку и фондовому рынку, каждый твой анализ — профессиональный, подробный, но лаконичный, с максимальной пользой для трейдера. "
+                    "Делай глубокий анализ BTC, ETH, BNB, SOL, DOGE (по данным с Binance и CoinGecko). Покажи текущие цены, изменения за сутки. "
+                    "Если есть сильный вход, дай сигнал (LONG/SHORT), точку входа, тейк-профит, стоп-лосс, причину и таймфрейм. "
+                    "Если нет, просто дай свежий обзор и рекомендации. Пиши на русском. "
+                    "Делай текст структурированным, важные значения выделяй, делай красиво. Не придумывай цены — только по присланным данным."
+                )},
                 {"role": "user", "content": prompt}
             ]
         )
         ans = resp.choices[0].message.content
-        return jsonify({"ok": True, "msg": ans})
+        now = datetime.now().strftime('%H:%M:%S')
+        return jsonify({"ok": True, "msg": ans, "time": now})
     except Exception as e:
-        return jsonify({"ok": False, "msg": str(e)})
+        return jsonify({"ok": False, "msg": str(e), "time": datetime.now().strftime('%H:%M:%S')})
 
-# КОРНЕВОЙ РОУТ: отдаём index.html из /static
 @app.route("/")
 def index():
     return send_from_directory(app.static_folder, "index.html")
 
-# PWA файлы для корректной работы
 @app.route("/manifest.json")
 def manifest():
     return send_from_directory(app.static_folder, "manifest.json")
