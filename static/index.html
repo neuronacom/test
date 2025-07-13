@@ -30,13 +30,13 @@
     .newsbox{
       border:2px solid #d2ecff;
       background:#f3f8ff;
-      min-height:60px;max-height:120px; /* меньше по высоте! */
+      min-height:60px;max-height:120px;
       width:92vw;max-width:340px;
     }
     .signalbox{
       border:2px solid #e2e2f3;
       background:#f7f7fb;
-      min-height:120px;max-height:240px; /* длиннее */
+      min-height:120px;max-height:240px;
       width:92vw;max-width:340px;
     }
     .newsitem{margin-bottom:9px;}
@@ -76,68 +76,51 @@
     <div class="signalbox" id="signalbox"><div class="dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div></div>
   </div>
   <script>
-    // -- PWA install --
     if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
-
-    // Храни историю новостей и сигналов
     let newsHistory = [];
     let signalHistory = [];
-
-    // Подгружаем новости: новые внизу, старые не исчезают, только пополняются
+    // Показ времени по Киеву, новости свежие!
     async function loadNews() {
       const box = document.getElementById("newsbox");
       try {
         let r = await fetch("/api/news");
         let news = await r.json();
         if (!Array.isArray(news)) news = [];
-        // Добавим новые только если их не было
         news.forEach(n=>{
           if(!newsHistory.some(h=>h.link===n.link)){
             newsHistory.push(n);
           }
         });
-        // Показываем всю ленту: новые внизу!
         box.innerHTML = newsHistory.map(n=>`
           <div class="newsitem">
             <span class="news-title">${n.title}</span>
             <a class="news-link" href="${n.link}" target="_blank" rel="noopener">Источник</a>
-            <span class="news-time">${(n.published||"").slice(0,16).replace('T',' ')}</span>
+            <span class="news-time">${n.published||""}</span>
           </div>
         `).join('');
       } catch(e) {
         box.innerHTML = "Ошибка загрузки новостей";
       }
     }
-
-    // --- Сигналы и анализ. История всегда хранится, новые внизу
     async function loadSignal() {
       const box = document.getElementById("signalbox");
-      // Анимация "думает"
       box.innerHTML = '<div style="display:flex;align-items:center;">'
         +'<span class="dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span></span>'
         +'<span style="color:#aaa;font-size:1em;margin-left:10px;">AI анализирует рынок...</span></div>';
       try {
         let m = await fetch("/api/market");
         let market = await m.json();
-        // Составляем prompt для AI
-        let prompt = "Дай подробный и точный анализ рынка по топ-5 монетам: BTC, ETH, BNB, SOL, DOGE. Текущие цены (USD): ";
-        for(const [k,v] of Object.entries(market.binance||{})){
-          let sym = k.replace('USDT','');
-          prompt += `${sym}: ${v.price}; `;
-        }
-        prompt += " + Изменения за сутки (CoinGecko): ";
-        for(const [k,v] of Object.entries(market.coingecko||{})){
-          prompt += `${k.toUpperCase()}: ${v.usd} (${v.usd_24h_change && v.usd_24h_change.toFixed ? v.usd_24h_change.toFixed(2) : v.usd_24h_change}%); `;
-        }
-        prompt += "Проверь всё ещё раз, укажи сильные уровни и сигналы, приводи только точные значения и причины.";
+        let prompt = "BTC, ETH, BNB, SOL, DOGE live-цены и изменения (только Binance): ";
+        Object.entries(market.binance||{}).forEach(([k,v])=>{
+          prompt += `${k.replace("USDT","")}: ${v}$ (${market.change[k]}%); `;
+        });
+        prompt += "Покажи таблицу и анализ по этим данным, строго только по этим значениям, сигнал если есть — формат LONG/SHORT, с точками входа, TP, SL, причинами.";
         let data = await fetch("/api/ai_comment",{
           method:"POST",headers:{'Content-Type':'application/json'},
           body:JSON.stringify({prompt})
         });
         let json = await data.json();
-        // Сохраняем в историю
         signalHistory.push({msg:json.msg, time:json.time});
-        // Рендерим всю историю (лента вниз)
         box.innerHTML = '<div class="signal-history">'
           + signalHistory.map(s=>`
             <div class="signal-item">
@@ -150,15 +133,12 @@
         box.innerHTML = "Ошибка AI анализа";
       }
     }
-
     function reloadAll(){
       loadNews();
       loadSignal();
     }
-
-    // -- Регулярное обновление (новости — каждые 60 сек, сигналы — 2 минуты)
     setInterval(loadNews, 60*1000);
-    setInterval(loadSignal, 120*1000);
+    setInterval(loadSignal, 60*1000);
     loadNews();
     loadSignal();
   </script>
