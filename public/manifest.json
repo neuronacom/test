@@ -1,11 +1,11 @@
 {
-  "name": "NEURONA 1.0",
+  "name": "NEURONA Trade AI",
   "short_name": "NEURONA",
   "start_url": ".",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#ffffff",
-  "description": "Персональный ИИ-ассистент для анализа крипты и общения.",
+  "description": "AI трейдер и новости крипторынка",
   "icons": [
     {
       "src": "https://i.ibb.co/XfKRzvcy/27.png",
