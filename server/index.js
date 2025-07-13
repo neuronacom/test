@@ -43,7 +43,7 @@ async function getAllCryptoNews() {
         });
       }
     });
-  } catch (e) { /* log error if needed */ }
+  } catch (e) {}
 
   // 2. Cointelegraph RSS
   try {
@@ -159,24 +159,23 @@ app.get('/api/cmc', async (req, res) => {
   }
 });
 
-// CoinGecko (актуальная цена любой монеты)
+// CoinGecko (актуальная цена любой монеты, но не для BTC)
 app.get('/api/coingecko', async (req, res) => {
   try {
     const query = (req.query.q || '').trim().toLowerCase();
     if (!query) return res.json({ found: false });
-
-    // Попробовать найти по symbol, id, name
+    // Если BTC — не отдаём, для него только Binance!
+    if (query === 'btc' || query === 'btc-usdt' || query === 'btc/usdt' || query === 'btcusdt') {
+      return res.json({ found: false });
+    }
     const cg = await fetchTimeout('https://api.coingecko.com/api/v3/coins/list').then(r => r.json());
     let coin = cg.find(c => c.symbol.toLowerCase() === query) ||
       cg.find(c => c.id.toLowerCase() === query) ||
       cg.find(c => c.name.toLowerCase() === query);
     if (!coin) return res.json({ found: false });
-
-    // Текущий курс USD
     const market = await fetchTimeout(
       `https://api.coingecko.com/api/v3/simple/price?ids=${coin.id}&vs_currencies=usd`
     ).then(r => r.json());
-
     res.json({
       found: true,
       name: coin.name,
@@ -189,12 +188,19 @@ app.get('/api/coingecko', async (req, res) => {
   }
 });
 
-// Binance — актуальная цена тикера
+// Binance — актуальная цена тикера (BTC, ETH, TON и другие)
 app.get('/api/binance', async (req, res) => {
   try {
     let symbol = (req.query.q || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
     if (!symbol) return res.json({ found: false });
     if (!symbol.endsWith('USDT')) symbol = symbol + 'USDT';
+    // Поддержка BTC и BTCUSDT
+    if (symbol === 'BTC' || symbol === 'BTCUSDT') symbol = 'BTCUSDT';
+    if (symbol === 'ETH' || symbol === 'ETHUSDT') symbol = 'ETHUSDT';
+    if (symbol === 'TON' || symbol === 'TONUSDT') symbol = 'TONUSDT';
+    if (symbol === 'SOL' || symbol === 'SOLUSDT') symbol = 'SOLUSDT';
+    if (symbol === 'BNB' || symbol === 'BNBUSDT') symbol = 'BNBUSDT';
+
     const r = await fetchTimeout(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`);
     const js = await r.json();
     if (js && js.price) {
@@ -207,7 +213,7 @@ app.get('/api/binance', async (req, res) => {
   }
 });
 
-// TradingView: поддержка/сопротивление (опционально, если нужно)
+// TradingView (если нужен)
 app.get('/api/tview', async (req, res) => {
   try {
     const symbol = (req.query.symbol || 'BTC').toUpperCase();
